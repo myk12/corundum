@@ -20,7 +20,7 @@ static void usage(char *name)
         " -m number  GT channel mask\n"
         " -p preset  Load channel preset\n"
         " -r         Read registers\n"
-        " -t         Reset channels\n"
+        " -t [side]  Reset channels (tx, rx, txrx, default txrx)\n"
         " -c file    Run eye scan and write CSV\n",
         name);
 }
@@ -44,7 +44,7 @@ int main(int argc, char *argv[])
     name = strrchr(argv[0], '/');
     name = name ? 1+name : argv[0];
 
-    while ((opt = getopt(argc, argv, "d:i:m:p:rtc:h?")) != EOF)
+    while ((opt = getopt(argc, argv, ":d:i:m:p:rt:c:h?")) != EOF)
     {
         switch (opt)
         {
@@ -64,16 +64,31 @@ int main(int argc, char *argv[])
             channel_read_regs = 1;
             break;
         case 't':
-            channel_reset = 1;
+            if (strstr(optarg, "tx"))
+                channel_reset |= 1;
+            if (strstr(optarg, "rx"))
+                channel_reset |= 2;
             break;
         case 'c':
             csv_file_name = optarg;
             break;
+        case ':':
+            switch (optopt)
+            {
+            case 't':
+                channel_reset = 3;
+                break;
+            default:
+                fprintf(stderr, "%s: option requires an argument -- '%c'\n", argv[0], optopt);
+                usage(name);
+                return -1;
+            }
         case 'h':
-        case '?':
             usage(name);
             return 0;
+        case '?':
         default:
+            fprintf(stderr, "%s: invalid option: -- '%c'\n", argv[0], optopt);
             usage(name);
             return -1;
         }
@@ -239,8 +254,10 @@ int main(int argc, char *argv[])
             if (channel_reset)
             {
                 printf("Resetting channel %d\n", index);
-                gt_ch_rx_reset(ch);
-                gt_ch_tx_reset(ch);
+                if (channel_reset & 1)
+                    gt_ch_tx_reset(ch);
+                if (channel_reset & 2)
+                    gt_ch_rx_reset(ch);
             }
         }
     }
