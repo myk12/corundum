@@ -323,6 +323,13 @@ int main(int argc, char *argv[])
                 fprintf(csv_file, "#eyescan\n");
                 fprintf(csv_file, "#date,'%s'\n", datestr);
 
+                if (dev->pci_device_path[0])
+                {
+                    char *ptr = strrchr(dev->pci_device_path, '/');
+                    if (ptr)
+                        fprintf(csv_file, "#pcie_id,%s\n", ptr+1);
+                }
+
                 fprintf(csv_file, "#fpga_id,0x%08x\n", dev->fpga_id);
                 fprintf(csv_file, "#fw_id,0x%08x\n", dev->fw_id);
                 fprintf(csv_file, "#fw_version,'%d.%d.%d.%d'\n", dev->fw_ver >> 24,
