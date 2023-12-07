@@ -51,7 +51,7 @@ mqnic-xcvr: mqnic-xcvr.o $(LIBMQNIC) drp.o xcvr_gt.o xcvr_gthe3.o xcvr_gtye3.o x
 	$(CC) $(ALL_CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 perout: perout.o timespec.o
-	$(CC) $(ALL_CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
+	$(CC) $(ALL_CFLAGS) $(LDFLAGS) $^ -o $@
 
 install:
 	install -d $(BINDIR)
