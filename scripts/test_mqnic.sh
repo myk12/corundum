@@ -29,6 +29,14 @@
 # of the authors and should not be interpreted as representing official policies,
 # either expressed or implied, of The Regents of the University of California.
 
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+
 netdev=
 ifaddr=
 netns=
@@ -41,7 +49,7 @@ dest_ip=
 iperf_base_port=9000
 mtu=
 
-utils_path=../utils/
+utils_path=$DIR/../utils/
 mqnic_fw=$utils_path/mqnic-fw
 mqnic_dump=$utils_path/mqnic-dump
 
