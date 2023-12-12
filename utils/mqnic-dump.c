@@ -363,17 +363,21 @@ int main(int argc, char *argv[])
     }
 
     printf("EQ info\n");
-    printf(" Queue      Base Address     En A  LS  A   IRQ    Prod    Cons     Len\n");
+    printf(" Queue      Base Address     Flags  LS   IRQ    Prod    Cons     Len\n");
     for (int k = 0; k < mqnic_res_get_count(dev_interface->eq_res); k++)
     {
         uint32_t val;
         volatile uint8_t *base = mqnic_res_get_addr(dev_interface->eq_res, k);
+        char flags[8] = "---";
 
         val = mqnic_reg_read32(base, MQNIC_EQ_CTRL_STATUS_REG);
         uint32_t irq = val & 0xffff;
         uint8_t enable = (val & MQNIC_EQ_ENABLE_MASK) != 0;
         uint8_t armed = (val & MQNIC_EQ_ARM_MASK) != 0;
         uint8_t active = (val & MQNIC_EQ_ACTIVE_MASK) != 0;
+        if (enable) flags[0] = 'e';
+        if (armed) flags[1] = 'r';
+        if (active) flags[2] = 'a';
         uint8_t log_queue_size = (val >> 28) & 0xf;
 
         if (!enable && !verbose)
@@ -386,21 +390,25 @@ int main(int argc, char *argv[])
         uint32_t cons_ptr = (val >> 16) & MQNIC_EQ_PTR_MASK;
         uint32_t occupancy = (prod_ptr - cons_ptr) & MQNIC_EQ_PTR_MASK;
 
-        printf("EQ %4d  0x%016lx  %d  %d  %2d  %d  %4d  %6d  %6d  %6d\n", k, base_addr, enable, active, log_queue_size, armed, irq, prod_ptr, cons_ptr, occupancy);
+        printf("EQ %4d  0x%016lx  %-5s  %2d  %4d  %6d  %6d  %6d\n", k, base_addr, flags, log_queue_size, irq, prod_ptr, cons_ptr, occupancy);
     }
 
     printf("CQ info\n");
-    printf(" Queue      Base Address     En A  LS  A   EQN    Prod    Cons     Len\n");
+    printf(" Queue      Base Address     Flags  LS   EQN    Prod    Cons     Len\n");
     for (int k = 0; k < mqnic_res_get_count(dev_interface->cq_res); k++)
     {
         uint32_t val;
         volatile uint8_t *base = mqnic_res_get_addr(dev_interface->cq_res, k);
+        char flags[8] = "---";
 
         val = mqnic_reg_read32(base, MQNIC_CQ_CTRL_STATUS_REG);
         uint32_t eqn = val & 0xffff;
         uint8_t enable = (val & MQNIC_CQ_ENABLE_MASK) != 0;
         uint8_t armed = (val & MQNIC_CQ_ARM_MASK) != 0;
         uint8_t active = (val & MQNIC_CQ_ACTIVE_MASK) != 0;
+        if (enable) flags[0] = 'e';
+        if (armed) flags[1] = 'r';
+        if (active) flags[2] = 'a';
         uint8_t log_queue_size = (val >> 28) & 0xf;
 
         if (!enable && !verbose)
@@ -413,19 +421,22 @@ int main(int argc, char *argv[])
         uint32_t cons_ptr = (val >> 16) & MQNIC_CQ_PTR_MASK;
         uint32_t occupancy = (prod_ptr - cons_ptr) & MQNIC_CQ_PTR_MASK;
 
-        printf("CQ %4d  0x%016lx  %d  %d  %2d  %d  %4d  %6d  %6d  %6d\n", k, base_addr, enable, active, log_queue_size, armed, eqn, prod_ptr, cons_ptr, occupancy);
+        printf("CQ %4d  0x%016lx  %-5s  %2d  %4d  %6d  %6d  %6d\n", k, base_addr, flags, log_queue_size, eqn, prod_ptr, cons_ptr, occupancy);
     }
 
     printf("TXQ info\n");
-    printf("  Queue      Base Address     En A  B  LS   CQN    Prod    Cons     Len\n");
+    printf("  Queue      Base Address     Flags  B  LS   CQN    Prod    Cons     Len\n");
     for (int k = 0; k < mqnic_res_get_count(dev_interface->txq_res); k++)
     {
         uint32_t val;
         volatile uint8_t *base = mqnic_res_get_addr(dev_interface->txq_res, k);
+        char flags[8] = "--";
 
         val = mqnic_reg_read32(base, MQNIC_QUEUE_CTRL_STATUS_REG);
         uint8_t enable = (val & MQNIC_QUEUE_ENABLE_MASK) != 0;
         uint8_t active = (val & MQNIC_QUEUE_ACTIVE_MASK) != 0;
+        if (enable) flags[0] = 'e';
+        if (active) flags[1] = 'a';
 
         if (!enable && !verbose)
             continue;
@@ -441,19 +452,22 @@ int main(int argc, char *argv[])
         uint32_t cons_ptr = (val >> 16) & MQNIC_QUEUE_PTR_MASK;
         uint32_t occupancy = (prod_ptr - cons_ptr) & MQNIC_QUEUE_PTR_MASK;
 
-        printf("TXQ %4d  0x%016lx  %d  %d  %d  %2d  %4d  %6d  %6d  %6d\n", k, base_addr, enable, active, log_desc_block_size, log_queue_size, cqn, prod_ptr, cons_ptr, occupancy);
+        printf("TXQ %4d  0x%016lx  %-5s  %d  %2d  %4d  %6d  %6d  %6d\n", k, base_addr, flags, log_desc_block_size, log_queue_size, cqn, prod_ptr, cons_ptr, occupancy);
     }
 
     printf("RXQ info\n");
-    printf("  Queue      Base Address     En A  B  LS   CQN    Prod    Cons     Len\n");
+    printf("  Queue      Base Address     Flags  B  LS   CQN    Prod    Cons     Len\n");
     for (int k = 0; k < mqnic_res_get_count(dev_interface->rxq_res); k++)
     {
         uint32_t val;
         volatile uint8_t *base = mqnic_res_get_addr(dev_interface->rxq_res, k);
+        char flags[8] = "--";
 
         val = mqnic_reg_read32(base, MQNIC_QUEUE_CTRL_STATUS_REG);
         uint8_t enable = (val & MQNIC_QUEUE_ENABLE_MASK) != 0;
         uint8_t active = (val & MQNIC_QUEUE_ACTIVE_MASK) != 0;
+        if (enable) flags[0] = 'e';
+        if (active) flags[1] = 'a';
 
         if (!enable && !verbose)
             continue;
@@ -469,7 +483,7 @@ int main(int argc, char *argv[])
         uint32_t cons_ptr = (val >> 16) & MQNIC_QUEUE_PTR_MASK;
         uint32_t occupancy = (prod_ptr - cons_ptr) & MQNIC_QUEUE_PTR_MASK;
 
-        printf("RXQ %4d  0x%016lx  %d  %d  %d  %2d  %4d  %6d  %6d  %6d\n", k, base_addr, enable, active, log_desc_block_size, log_queue_size, cqn, prod_ptr, cons_ptr, occupancy);
+        printf("RXQ %4d  0x%016lx  %-5s  %d  %2d  %4d  %6d  %6d  %6d\n", k, base_addr, flags, log_desc_block_size, log_queue_size, cqn, prod_ptr, cons_ptr, occupancy);
     }
 
     if (verbose)
