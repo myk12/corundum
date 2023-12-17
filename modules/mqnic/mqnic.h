@@ -269,8 +269,6 @@ struct mqnic_ring {
 } ____cacheline_aligned_in_smp;
 
 struct mqnic_cq {
-	u32 prod_ptr;
-
 	u32 cons_ptr;
 
 	u32 size;
@@ -295,8 +293,6 @@ struct mqnic_cq {
 };
 
 struct mqnic_eq {
-	u32 prod_ptr;
-
 	u32 cons_ptr;
 
 	u32 size;
@@ -581,7 +577,6 @@ int mqnic_open_eq(struct mqnic_eq *eq, struct mqnic_irq *irq, int size);
 void mqnic_close_eq(struct mqnic_eq *eq);
 int mqnic_eq_attach_cq(struct mqnic_eq *eq, struct mqnic_cq *cq);
 void mqnic_eq_detach_cq(struct mqnic_eq *eq, struct mqnic_cq *cq);
-void mqnic_eq_read_prod_ptr(struct mqnic_eq *eq);
 void mqnic_eq_write_cons_ptr(struct mqnic_eq *eq);
 void mqnic_arm_eq(struct mqnic_eq *eq);
 void mqnic_process_eq(struct mqnic_eq *eq);
@@ -591,7 +586,6 @@ struct mqnic_cq *mqnic_create_cq(struct mqnic_if *interface);
 void mqnic_destroy_cq(struct mqnic_cq *cq);
 int mqnic_open_cq(struct mqnic_cq *cq, struct mqnic_eq *eq, int size);
 void mqnic_close_cq(struct mqnic_cq *cq);
-void mqnic_cq_read_prod_ptr(struct mqnic_cq *cq);
 void mqnic_cq_write_cons_ptr(struct mqnic_cq *cq);
 void mqnic_arm_cq(struct mqnic_cq *cq);
 
