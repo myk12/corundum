@@ -241,8 +241,6 @@ struct mqnic_ring {
 	u32 size_mask;
 	u32 stride;
 
-	u32 cpl_index;
-
 	u32 mtu;
 	u32 page_order;
 
