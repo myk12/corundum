@@ -421,6 +421,13 @@ netdev_tx_t mqnic_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		// unknown TX queue
 		goto tx_drop;
 
+	if (skb->len < ETH_HLEN) {
+		netdev_warn(priv->ndev, "%s: ring %d dropping short frame (length %d)",
+				__func__, ring->index, skb->len);
+		ring->dropped_packets++;
+		goto tx_drop_count;
+	}
+
 	cons_ptr = READ_ONCE(ring->cons_ptr);
 
 	// prefetch for BQL
