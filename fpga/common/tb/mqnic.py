@@ -468,7 +468,6 @@ class Eq:
 
         self.cq_table = {}
 
-        self.prod_ptr = 0
         self.cons_ptr = 0
 
         self.hw_regs = None
@@ -493,7 +492,6 @@ class Eq:
 
         self.buf[0:self.buf_size] = b'\x00'*self.buf_size
 
-        self.prod_ptr = 0
         self.cons_ptr = 0
 
         self.irq = irq
@@ -507,7 +505,7 @@ class Eq:
         await self.hw_regs.write_dword(MQNIC_EQ_BASE_ADDR_VF_REG+4, self.buf_dma >> 32)
         await self.hw_regs.write_dword(MQNIC_EQ_CTRL_STATUS_REG, MQNIC_EQ_CMD_SET_SIZE | self.log_size)
         await self.hw_regs.write_dword(MQNIC_EQ_CTRL_STATUS_REG, MQNIC_EQ_CMD_SET_IRQN | self.irq)
-        await self.hw_regs.write_dword(MQNIC_EQ_CTRL_STATUS_REG, MQNIC_EQ_CMD_SET_PROD_PTR | (self.prod_ptr & MQNIC_EQ_PTR_MASK))
+        await self.hw_regs.write_dword(MQNIC_EQ_CTRL_STATUS_REG, MQNIC_EQ_CMD_SET_PROD_PTR | 0)
         await self.hw_regs.write_dword(MQNIC_EQ_CTRL_STATUS_REG, MQNIC_EQ_CMD_SET_CONS_PTR | (self.cons_ptr & MQNIC_EQ_PTR_MASK))
         await self.hw_regs.write_dword(MQNIC_EQ_CTRL_STATUS_REG, MQNIC_EQ_CMD_SET_ENABLE | 1)
 
@@ -535,10 +533,6 @@ class Eq:
 
     def detach_cq(self, cq):
         del self.cq_table[cq.cqn]
-
-    async def read_prod_ptr(self):
-        val = await self.hw_regs.read_dword(MQNIC_EQ_PTR_REG)
-        self.prod_ptr += ((val & MQNIC_EQ_PTR_MASK) - self.prod_ptr) & MQNIC_EQ_PTR_MASK
 
     async def write_cons_ptr(self):
         await self.hw_regs.write_dword(MQNIC_EQ_CTRL_STATUS_REG, MQNIC_EQ_CMD_SET_CONS_PTR | (self.cons_ptr & MQNIC_EQ_PTR_MASK))
@@ -602,7 +596,6 @@ class Cq:
         self.src_ring = None
         self.handler = None
 
-        self.prod_ptr = 0
         self.cons_ptr = 0
 
         self.hw_regs = None
@@ -627,7 +620,6 @@ class Cq:
 
         self.buf[0:self.buf_size] = b'\x00'*self.buf_size
 
-        self.prod_ptr = 0
         self.cons_ptr = 0
 
         eq.attach_cq(self)
@@ -640,7 +632,7 @@ class Cq:
         await self.hw_regs.write_dword(MQNIC_CQ_BASE_ADDR_VF_REG+4, self.buf_dma >> 32)
         await self.hw_regs.write_dword(MQNIC_CQ_CTRL_STATUS_REG, MQNIC_CQ_CMD_SET_SIZE | self.log_size)
         await self.hw_regs.write_dword(MQNIC_CQ_CTRL_STATUS_REG, MQNIC_CQ_CMD_SET_EQN | self.eq.eqn)
-        await self.hw_regs.write_dword(MQNIC_CQ_CTRL_STATUS_REG, MQNIC_CQ_CMD_SET_PROD_PTR | (self.prod_ptr & MQNIC_CQ_PTR_MASK))
+        await self.hw_regs.write_dword(MQNIC_CQ_CTRL_STATUS_REG, MQNIC_CQ_CMD_SET_PROD_PTR | 0)
         await self.hw_regs.write_dword(MQNIC_CQ_CTRL_STATUS_REG, MQNIC_CQ_CMD_SET_CONS_PTR | (self.cons_ptr & MQNIC_CQ_PTR_MASK))
         await self.hw_regs.write_dword(MQNIC_CQ_CTRL_STATUS_REG, MQNIC_CQ_CMD_SET_ENABLE | 1)
 
@@ -663,10 +655,6 @@ class Cq:
 
         self.interface.cq_res.free(self.cqn)
         self.cqn = None
-
-    async def read_prod_ptr(self):
-        val = await self.hw_regs.read_dword(MQNIC_CQ_PTR_REG)
-        self.prod_ptr += ((val & MQNIC_CQ_PTR_MASK) - self.prod_ptr) & MQNIC_CQ_PTR_MASK
 
     async def write_cons_ptr(self):
         await self.hw_regs.write_dword(MQNIC_CQ_CTRL_STATUS_REG, MQNIC_CQ_CMD_SET_CONS_PTR | (self.cons_ptr & MQNIC_CQ_PTR_MASK))
