@@ -61,7 +61,8 @@ int mqnic_open_cq(struct mqnic_cq *cq, struct mqnic_eq *eq, int size)
 
 	cq->cons_ptr = 0;
 
-	memset(cq->buf, 1, cq->buf_size);
+	// clear all phase tag bits
+	memset(cq->buf, 0, cq->buf_size);
 
 	// deactivate queue
 	iowrite32(MQNIC_CQ_CMD_SET_ENABLE | 0, cq->hw_addr + MQNIC_CQ_CTRL_STATUS_REG);
