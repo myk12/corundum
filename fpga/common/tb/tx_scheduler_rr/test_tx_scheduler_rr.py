@@ -29,9 +29,9 @@ TxReqBus, TxReqTransaction, TxReqSource, TxReqSink, TxReqMonitor = define_stream
 )
 
 
-TxReqStatusBus, TxReqStatusTransaction, TxReqStatusSource, TxReqStatusSink, TxReqStatusMonitor = define_stream("TxReqStatus",
-    signals=["len", "tag", "valid"],
-    optional_signals=["ready"]
+TxStatusBus, TxStatusTransaction, TxStatusSource, TxStatusSink, TxStatusMonitor = define_stream("TxStatus",
+    signals=["tag", "valid"],
+    optional_signals=["empty", "error", "len", "ready"]
 )
 
 
@@ -57,7 +57,9 @@ class TB(object):
         cocotb.start_soon(Clock(dut.clk, 4, units="ns").start())
 
         self.tx_req_sink = TxReqSink(TxReqBus.from_prefix(dut, "m_axis_tx_req"), dut.clk, dut.rst)
-        self.tx_req_status_source = TxReqStatusSource(TxReqStatusBus.from_prefix(dut, "s_axis_tx_req_status"), dut.clk, dut.rst)
+        self.tx_status_dequeue_source = TxStatusSource(TxStatusBus.from_prefix(dut, "s_axis_tx_status_dequeue"), dut.clk, dut.rst)
+        self.tx_status_start_source = TxStatusSource(TxStatusBus.from_prefix(dut, "s_axis_tx_status_start"), dut.clk, dut.rst)
+        self.tx_status_finish_source = TxStatusSource(TxStatusBus.from_prefix(dut, "s_axis_tx_status_finish"), dut.clk, dut.rst)
 
         self.doorbell_source = DoorbellSource(DoorbellBus.from_prefix(dut, "s_axis_doorbell"), dut.clk, dut.rst)
 
@@ -69,7 +71,9 @@ class TB(object):
 
     def set_idle_generator(self, generator=None):
         if generator:
-            self.tx_req_status_source.set_pause_generator(generator())
+            self.tx_status_dequeue_source.set_pause_generator(generator())
+            self.tx_status_start_source.set_pause_generator(generator())
+            self.tx_status_finish_source.set_pause_generator(generator())
 
     def set_backpressure_generator(self, generator=None):
         if generator:
@@ -127,18 +131,20 @@ async def run_test_single(dut, idle_inserter=None, backpressure_inserter=None):
 
         assert tx_req.queue == 0
 
-        status = TxReqStatusTransaction(len=1000, tag=tx_req.tag)
-        tb.log.info("TX request status: %s", status)
-        await tb.tx_req_status_source.send(status)
+        status = TxStatusTransaction(empty=0, error=0, len=1000, tag=tx_req.tag)
+        tb.log.info("TX status: %s", status)
+        await tb.tx_status_dequeue_source.send(status)
+        await tb.tx_status_start_source.send(status)
+        await tb.tx_status_finish_source.send(status)
 
     tx_req = await tb.tx_req_sink.recv()
     tb.log.info("TX request: %s", tx_req)
 
     assert tx_req.queue == 0
 
-    status = TxReqStatusTransaction(len=0, tag=tx_req.tag)
-    tb.log.info("TX request status: %s", status)
-    await tb.tx_req_status_source.send(status)
+    status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+    tb.log.info("TX status: %s", status)
+    await tb.tx_status_dequeue_source.send(status)
 
     for k in range(200):
         await RisingEdge(dut.clk)
@@ -149,9 +155,9 @@ async def run_test_single(dut, idle_inserter=None, backpressure_inserter=None):
 
         assert tx_req.queue == 0
 
-        status = TxReqStatusTransaction(len=0, tag=tx_req.tag)
-        tb.log.info("TX request status: %s", status)
-        await tb.tx_req_status_source.send(status)
+        status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+        tb.log.info("TX status: %s", status)
+        await tb.tx_status_dequeue_source.send(status)
 
     await RisingEdge(dut.clk)
     await RisingEdge(dut.clk)
@@ -183,17 +189,19 @@ async def run_test_multiple(dut, idle_inserter=None, backpressure_inserter=None)
 
         assert tx_req.queue == k % 10
 
-        status = TxReqStatusTransaction(len=1000, tag=tx_req.tag)
-        tb.log.info("TX request status: %s", status)
-        await tb.tx_req_status_source.send(status)
+        status = TxStatusTransaction(empty=0, error=0, len=1000, tag=tx_req.tag)
+        tb.log.info("TX status: %s", status)
+        await tb.tx_status_dequeue_source.send(status)
+        await tb.tx_status_start_source.send(status)
+        await tb.tx_status_finish_source.send(status)
 
     for k in range(10):
         tx_req = await tb.tx_req_sink.recv()
         tb.log.info("TX request: %s", tx_req)
 
-        status = TxReqStatusTransaction(len=0, tag=tx_req.tag)
-        tb.log.info("TX request status: %s", status)
-        await tb.tx_req_status_source.send(status)
+        status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+        tb.log.info("TX status: %s", status)
+        await tb.tx_status_dequeue_source.send(status)
 
     for k in range(200):
         await RisingEdge(dut.clk)
@@ -202,9 +210,9 @@ async def run_test_multiple(dut, idle_inserter=None, backpressure_inserter=None)
         tx_req = await tb.tx_req_sink.recv()
         tb.log.info("TX request: %s", tx_req)
 
-        status = TxReqStatusTransaction(len=0, tag=tx_req.tag)
-        tb.log.info("TX request status: %s", status)
-        await tb.tx_req_status_source.send(status)
+        status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+        tb.log.info("TX status: %s", status)
+        await tb.tx_status_dequeue_source.send(status)
 
     await RisingEdge(dut.clk)
     await RisingEdge(dut.clk)
@@ -234,9 +242,11 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
         assert tx_req.queue == 0
 
-        status = TxReqStatusTransaction(len=1000, tag=tx_req.tag)
-        tb.log.info("TX request status: %s", status)
-        await tb.tx_req_status_source.send(status)
+        status = TxStatusTransaction(empty=0, error=0, len=1000, tag=tx_req.tag)
+        tb.log.info("TX status: %s", status)
+        await tb.tx_status_dequeue_source.send(status)
+        await tb.tx_status_start_source.send(status)
+        await tb.tx_status_finish_source.send(status)
 
     for k in range(200):
         await RisingEdge(dut.clk)
@@ -246,9 +256,9 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
     assert tx_req.queue == 0
 
-    status = TxReqStatusTransaction(len=0, tag=tx_req.tag)
-    tb.log.info("TX request status: %s", status)
-    await tb.tx_req_status_source.send(status)
+    status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+    tb.log.info("TX status: %s", status)
+    await tb.tx_status_dequeue_source.send(status)
 
     await tb.doorbell_source.send(DoorbellTransaction(queue=0))
 
@@ -257,18 +267,18 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
     assert tx_req.queue == 0
 
-    status = TxReqStatusTransaction(len=0, tag=tx_req.tag)
-    tb.log.info("TX request status: %s", status)
-    await tb.tx_req_status_source.send(status)
+    status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+    tb.log.info("TX status: %s", status)
+    await tb.tx_status_dequeue_source.send(status)
 
     tx_req = await tb.tx_req_sink.recv()
     tb.log.info("TX request: %s", tx_req)
 
     assert tx_req.queue == 0
 
-    status = TxReqStatusTransaction(len=0, tag=tx_req.tag)
-    tb.log.info("TX request status: %s", status)
-    await tb.tx_req_status_source.send(status)
+    status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+    tb.log.info("TX status: %s", status)
+    await tb.tx_status_dequeue_source.send(status)
 
     for k in range(10):
         tx_req = await tb.tx_req_sink.recv()
@@ -276,9 +286,11 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
         assert tx_req.queue == 0
 
-        status = TxReqStatusTransaction(len=1000, tag=tx_req.tag)
-        tb.log.info("TX request status: %s", status)
-        await tb.tx_req_status_source.send(status)
+        status = TxStatusTransaction(empty=0, error=0, len=1000, tag=tx_req.tag)
+        tb.log.info("TX status: %s", status)
+        await tb.tx_status_dequeue_source.send(status)
+        await tb.tx_status_start_source.send(status)
+        await tb.tx_status_finish_source.send(status)
 
     for k in range(200):
         await RisingEdge(dut.clk)
@@ -288,9 +300,9 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
     assert tx_req.queue == 0
 
-    status = TxReqStatusTransaction(len=0, tag=tx_req.tag)
-    tb.log.info("TX request status: %s", status)
-    await tb.tx_req_status_source.send(status)
+    status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+    tb.log.info("TX status: %s", status)
+    await tb.tx_status_dequeue_source.send(status)
 
     for k in range(200):
         await RisingEdge(dut.clk)
@@ -301,9 +313,9 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
         assert tx_req.queue == 0
 
-        status = TxReqStatusTransaction(len=0, tag=tx_req.tag)
-        tb.log.info("TX request status: %s", status)
-        await tb.tx_req_status_source.send(status)
+        status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+        tb.log.info("TX status: %s", status)
+        await tb.tx_status_dequeue_source.send(status)
 
     await RisingEdge(dut.clk)
     await RisingEdge(dut.clk)

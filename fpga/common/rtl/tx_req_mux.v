@@ -48,11 +48,19 @@ module tx_req_mux #
     /*
      * Transmit request status input (from transmit engine)
      */
-    input  wire [LEN_WIDTH-1:0]                 s_axis_req_status_len,
-    input  wire [M_REQ_TAG_WIDTH-1:0]           s_axis_req_status_tag,
-    input  wire                                 s_axis_req_status_empty,
-    input  wire                                 s_axis_req_status_error,
-    input  wire                                 s_axis_req_status_valid,
+    input  wire                                 s_axis_status_dequeue_empty,
+    input  wire                                 s_axis_status_dequeue_error,
+    input  wire [M_REQ_TAG_WIDTH-1:0]           s_axis_status_dequeue_tag,
+    input  wire                                 s_axis_status_dequeue_valid,
+
+    input  wire                                 s_axis_status_start_error,
+    input  wire [LEN_WIDTH-1:0]                 s_axis_status_start_len,
+    input  wire [M_REQ_TAG_WIDTH-1:0]           s_axis_status_start_tag,
+    input  wire                                 s_axis_status_start_valid,
+
+    input  wire [LEN_WIDTH-1:0]                 s_axis_status_finish_len,
+    input  wire [M_REQ_TAG_WIDTH-1:0]           s_axis_status_finish_tag,
+    input  wire                                 s_axis_status_finish_valid,
 
     /*
      * Transmit request input
@@ -66,11 +74,19 @@ module tx_req_mux #
     /*
      * Transmit request status output
      */
-    output wire [PORTS*LEN_WIDTH-1:0]           m_axis_req_status_len,
-    output wire [PORTS*S_REQ_TAG_WIDTH-1:0]     m_axis_req_status_tag,
-    output wire [PORTS-1:0]                     m_axis_req_status_empty,
-    output wire [PORTS-1:0]                     m_axis_req_status_error,
-    output wire [PORTS-1:0]                     m_axis_req_status_valid
+    output wire [PORTS-1:0]                     m_axis_status_dequeue_empty,
+    output wire [PORTS-1:0]                     m_axis_status_dequeue_error,
+    output wire [PORTS*S_REQ_TAG_WIDTH-1:0]     m_axis_status_dequeue_tag,
+    output wire [PORTS-1:0]                     m_axis_status_dequeue_valid,
+
+    output wire [PORTS-1:0]                     m_axis_status_start_error,
+    output wire [PORTS*LEN_WIDTH-1:0]           m_axis_status_start_len,
+    output wire [PORTS*S_REQ_TAG_WIDTH-1:0]     m_axis_status_start_tag,
+    output wire [PORTS-1:0]                     m_axis_status_start_valid,
+
+    output wire [PORTS*LEN_WIDTH-1:0]           m_axis_status_finish_len,
+    output wire [PORTS*S_REQ_TAG_WIDTH-1:0]     m_axis_status_finish_tag,
+    output wire [PORTS-1:0]                     m_axis_status_finish_valid
 );
 
 parameter CL_PORTS = $clog2(PORTS);
@@ -242,35 +258,53 @@ always @(posedge clk) begin
 end
 
 // request status demux
-reg [LEN_WIDTH-1:0] m_axis_req_status_len_reg = {LEN_WIDTH{1'b0}}, m_axis_req_status_len_next;
-reg [S_REQ_TAG_WIDTH-1:0] m_axis_req_status_tag_reg = {S_REQ_TAG_WIDTH{1'b0}}, m_axis_req_status_tag_next;
-reg m_axis_req_status_empty_reg = 1'b0, m_axis_req_status_empty_next;
-reg m_axis_req_status_error_reg = 1'b0, m_axis_req_status_error_next;
-reg [PORTS-1:0] m_axis_req_status_valid_reg = {PORTS{1'b0}}, m_axis_req_status_valid_next;
+reg m_axis_status_dequeue_empty_reg = 1'b0;
+reg m_axis_status_dequeue_error_reg = 1'b0;
+reg [S_REQ_TAG_WIDTH-1:0] m_axis_status_dequeue_tag_reg = {S_REQ_TAG_WIDTH{1'b0}};
+reg [PORTS-1:0] m_axis_status_dequeue_valid_reg = {PORTS{1'b0}};
 
-assign m_axis_req_status_len = {PORTS{m_axis_req_status_len_reg}};
-assign m_axis_req_status_tag = {PORTS{m_axis_req_status_tag_reg}};
-assign m_axis_req_status_empty = {PORTS{m_axis_req_status_empty_reg}};
-assign m_axis_req_status_error = {PORTS{m_axis_req_status_error_reg}};
-assign m_axis_req_status_valid = m_axis_req_status_valid_reg;
+reg m_axis_status_start_error_reg = 1'b0;
+reg [LEN_WIDTH-1:0] m_axis_status_start_len_reg = {LEN_WIDTH{1'b0}};
+reg [S_REQ_TAG_WIDTH-1:0] m_axis_status_start_tag_reg = {S_REQ_TAG_WIDTH{1'b0}};
+reg [PORTS-1:0] m_axis_status_start_valid_reg = {PORTS{1'b0}};
 
-always @* begin
-    m_axis_req_status_len_next = s_axis_req_status_len;
-    m_axis_req_status_tag_next = s_axis_req_status_tag;
-    m_axis_req_status_empty_next = s_axis_req_status_empty;
-    m_axis_req_status_error_next = s_axis_req_status_error;
-    m_axis_req_status_valid_next = s_axis_req_status_valid << (PORTS > 1 ? (s_axis_req_status_tag >> S_REQ_TAG_WIDTH) : 0);
-end
+reg [LEN_WIDTH-1:0] m_axis_status_finish_len_reg = {LEN_WIDTH{1'b0}};
+reg [S_REQ_TAG_WIDTH-1:0] m_axis_status_finish_tag_reg = {S_REQ_TAG_WIDTH{1'b0}};
+reg [PORTS-1:0] m_axis_status_finish_valid_reg = {PORTS{1'b0}};
+
+assign m_axis_status_dequeue_empty = {PORTS{m_axis_status_dequeue_empty_reg}};
+assign m_axis_status_dequeue_error = {PORTS{m_axis_status_dequeue_error_reg}};
+assign m_axis_status_dequeue_tag = {PORTS{m_axis_status_dequeue_tag_reg}};
+assign m_axis_status_dequeue_valid = m_axis_status_dequeue_valid_reg;
+
+assign m_axis_status_start_error = {PORTS{m_axis_status_start_error_reg}};
+assign m_axis_status_start_len = {PORTS{m_axis_status_start_len_reg}};
+assign m_axis_status_start_tag = {PORTS{m_axis_status_start_tag_reg}};
+assign m_axis_status_start_valid = m_axis_status_start_valid_reg;
+
+assign m_axis_status_finish_len = {PORTS{m_axis_status_finish_len_reg}};
+assign m_axis_status_finish_tag = {PORTS{m_axis_status_finish_tag_reg}};
+assign m_axis_status_finish_valid = m_axis_status_finish_valid_reg;
 
 always @(posedge clk) begin
-    m_axis_req_status_len_reg <= m_axis_req_status_len_next;
-    m_axis_req_status_tag_reg <= m_axis_req_status_tag_next;
-    m_axis_req_status_empty_reg <= m_axis_req_status_empty_next;
-    m_axis_req_status_error_reg <= m_axis_req_status_error_next;
-    m_axis_req_status_valid_reg <= m_axis_req_status_valid_next;
+    m_axis_status_dequeue_empty_reg <= s_axis_status_dequeue_empty;
+    m_axis_status_dequeue_error_reg <= s_axis_status_dequeue_error;
+    m_axis_status_dequeue_tag_reg <= s_axis_status_dequeue_tag;
+    m_axis_status_dequeue_valid_reg <= s_axis_status_dequeue_valid << (PORTS > 1 ? (s_axis_status_dequeue_tag >> S_REQ_TAG_WIDTH) : 0);
+
+    m_axis_status_start_error_reg <= s_axis_status_start_error;
+    m_axis_status_start_len_reg <= s_axis_status_start_len;
+    m_axis_status_start_tag_reg <= s_axis_status_start_tag;
+    m_axis_status_start_valid_reg <= s_axis_status_start_valid << (PORTS > 1 ? (s_axis_status_start_tag >> S_REQ_TAG_WIDTH) : 0);
+
+    m_axis_status_finish_len_reg <= s_axis_status_finish_len;
+    m_axis_status_finish_tag_reg <= s_axis_status_finish_tag;
+    m_axis_status_finish_valid_reg <= s_axis_status_finish_valid << (PORTS > 1 ? (s_axis_status_finish_tag >> S_REQ_TAG_WIDTH) : 0);
 
     if (rst) begin
-        m_axis_req_status_valid_reg <= {PORTS{1'b0}};
+        m_axis_status_dequeue_valid_reg <= {PORTS{1'b0}};
+        m_axis_status_start_valid_reg <= {PORTS{1'b0}};
+        m_axis_status_finish_valid_reg <= {PORTS{1'b0}};
     end
 end
 

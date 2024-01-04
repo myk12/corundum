@@ -112,9 +112,19 @@ module mqnic_tx_scheduler_block #
     /*
      * Transmit request status input
      */
-    input  wire [DMA_LEN_WIDTH-1:0]      s_axis_tx_req_status_len,
-    input  wire [TX_REQ_TAG_WIDTH-1:0]   s_axis_tx_req_status_tag,
-    input  wire                          s_axis_tx_req_status_valid,
+    input  wire                          s_axis_tx_status_dequeue_empty,
+    input  wire                          s_axis_tx_status_dequeue_error,
+    input  wire [TX_REQ_TAG_WIDTH-1:0]   s_axis_tx_status_dequeue_tag,
+    input  wire                          s_axis_tx_status_dequeue_valid,
+
+    input  wire                          s_axis_tx_status_start_error,
+    input  wire [DMA_LEN_WIDTH-1:0]      s_axis_tx_status_start_len,
+    input  wire [TX_REQ_TAG_WIDTH-1:0]   s_axis_tx_status_start_tag,
+    input  wire                          s_axis_tx_status_start_valid,
+
+    input  wire [DMA_LEN_WIDTH-1:0]      s_axis_tx_status_finish_len,
+    input  wire [TX_REQ_TAG_WIDTH-1:0]   s_axis_tx_status_finish_tag,
+    input  wire                          s_axis_tx_status_finish_valid,
 
     /*
      * TX doorbell input
@@ -448,9 +458,19 @@ tx_scheduler_inst (
     /*
      * Transmit request status input
      */
-    .s_axis_tx_req_status_len(s_axis_tx_req_status_len),
-    .s_axis_tx_req_status_tag(s_axis_tx_req_status_tag),
-    .s_axis_tx_req_status_valid(s_axis_tx_req_status_valid),
+    .s_axis_tx_status_dequeue_empty(s_axis_tx_status_dequeue_empty),
+    .s_axis_tx_status_dequeue_error(s_axis_tx_status_dequeue_error),
+    .s_axis_tx_status_dequeue_tag(s_axis_tx_status_dequeue_tag),
+    .s_axis_tx_status_dequeue_valid(s_axis_tx_status_dequeue_valid),
+
+    .s_axis_tx_status_start_error(s_axis_tx_status_start_error),
+    .s_axis_tx_status_start_len(s_axis_tx_status_start_len),
+    .s_axis_tx_status_start_tag(s_axis_tx_status_start_tag),
+    .s_axis_tx_status_start_valid(s_axis_tx_status_start_valid),
+
+    .s_axis_tx_status_finish_len(s_axis_tx_status_finish_len),
+    .s_axis_tx_status_finish_tag(s_axis_tx_status_finish_tag),
+    .s_axis_tx_status_finish_valid(s_axis_tx_status_finish_valid),
 
     /*
      * Doorbell input

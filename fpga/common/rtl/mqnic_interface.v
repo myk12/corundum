@@ -2224,9 +2224,19 @@ wire [SCHEDULERS*AXIS_IF_TX_DEST_WIDTH-1:0] tx_sched_req_dest;
 wire [SCHEDULERS-1:0]                       tx_sched_req_valid;
 wire [SCHEDULERS-1:0]                       tx_sched_req_ready;
 
-wire [SCHEDULERS*DMA_CLIENT_LEN_WIDTH-1:0]  tx_sched_req_status_len;
-wire [SCHEDULERS*REQ_TAG_WIDTH_INT-1:0]     tx_sched_req_status_tag;
-wire [SCHEDULERS-1:0]                       tx_sched_req_status_valid;
+wire [SCHEDULERS-1:0]                       tx_sched_status_dequeue_empty;
+wire [SCHEDULERS-1:0]                       tx_sched_status_dequeue_error;
+wire [SCHEDULERS*REQ_TAG_WIDTH-1:0]         tx_sched_status_dequeue_tag;
+wire [SCHEDULERS-1:0]                       tx_sched_status_dequeue_valid;
+
+wire [SCHEDULERS-1:0]                       tx_sched_status_start_error;
+wire [SCHEDULERS*DMA_CLIENT_LEN_WIDTH-1:0]  tx_sched_status_start_len;
+wire [SCHEDULERS*REQ_TAG_WIDTH-1:0]         tx_sched_status_start_tag;
+wire [SCHEDULERS-1:0]                       tx_sched_status_start_valid;
+
+wire [SCHEDULERS*DMA_CLIENT_LEN_WIDTH-1:0]  tx_sched_status_finish_len;
+wire [SCHEDULERS*REQ_TAG_WIDTH-1:0]         tx_sched_status_finish_tag;
+wire [SCHEDULERS-1:0]                       tx_sched_status_finish_valid;
 
 wire [TX_QUEUE_INDEX_WIDTH-1:0]  tx_req_queue;
 wire [REQ_TAG_WIDTH-1:0]         tx_req_tag;
@@ -2234,9 +2244,19 @@ wire [AXIS_IF_TX_DEST_WIDTH-1:0] tx_req_dest;
 wire                             tx_req_valid;
 wire                             tx_req_ready;
 
-wire [DMA_CLIENT_LEN_WIDTH-1:0]  tx_req_status_len;
-wire [REQ_TAG_WIDTH-1:0]         tx_req_status_tag;
-wire                             tx_req_status_valid;
+wire                             tx_status_dequeue_empty;
+wire                             tx_status_dequeue_error;
+wire [REQ_TAG_WIDTH-1:0]         tx_status_dequeue_tag;
+wire                             tx_status_dequeue_valid;
+
+wire                             tx_status_start_error;
+wire [DMA_CLIENT_LEN_WIDTH-1:0]  tx_status_start_len;
+wire [REQ_TAG_WIDTH-1:0]         tx_status_start_tag;
+wire                             tx_status_start_valid;
+
+wire [DMA_CLIENT_LEN_WIDTH-1:0]  tx_status_finish_len;
+wire [REQ_TAG_WIDTH-1:0]         tx_status_finish_tag;
+wire                             tx_status_finish_valid;
 
 generate
 
@@ -2343,9 +2363,19 @@ for (n = 0; n < SCHEDULERS; n = n + 1) begin : sched
         /*
          * Transmit request status input
          */
-        .s_axis_tx_req_status_len(tx_sched_req_status_len[n*DMA_CLIENT_LEN_WIDTH +: DMA_CLIENT_LEN_WIDTH]),
-        .s_axis_tx_req_status_tag(tx_sched_req_status_tag[n*REQ_TAG_WIDTH_INT +: REQ_TAG_WIDTH_INT]),
-        .s_axis_tx_req_status_valid(tx_sched_req_status_valid[n +: 1]),
+        .s_axis_tx_status_dequeue_empty(tx_sched_status_dequeue_empty[n +: 1]),
+        .s_axis_tx_status_dequeue_error(tx_sched_status_dequeue_error[n +: 1]),
+        .s_axis_tx_status_dequeue_tag(tx_sched_status_dequeue_tag[n*REQ_TAG_WIDTH_INT +: REQ_TAG_WIDTH_INT]),
+        .s_axis_tx_status_dequeue_valid(tx_sched_status_dequeue_valid[n +: 1]),
+
+        .s_axis_tx_status_start_error(tx_sched_status_start_error[n +: 1]),
+        .s_axis_tx_status_start_len(tx_sched_status_start_len[n*DMA_CLIENT_LEN_WIDTH +: DMA_CLIENT_LEN_WIDTH]),
+        .s_axis_tx_status_start_tag(tx_sched_status_start_tag[n*REQ_TAG_WIDTH_INT +: REQ_TAG_WIDTH_INT]),
+        .s_axis_tx_status_start_valid(tx_sched_status_start_valid[n +: 1]),
+
+        .s_axis_tx_status_finish_len(tx_sched_status_finish_len[n*DMA_CLIENT_LEN_WIDTH +: DMA_CLIENT_LEN_WIDTH]),
+        .s_axis_tx_status_finish_tag(tx_sched_status_finish_tag[n*REQ_TAG_WIDTH_INT +: REQ_TAG_WIDTH_INT]),
+        .s_axis_tx_status_finish_valid(tx_sched_status_finish_valid[n +: 1]),
 
         /*
          * Doorbell input
@@ -2409,11 +2439,19 @@ if (SCHEDULERS > 1) begin
         /*
          * Transmit request status input (from transmit engine)
          */
-        .s_axis_req_status_len(tx_req_status_len),
-        .s_axis_req_status_tag(tx_req_status_tag),
-        // .s_axis_req_status_empty(tx_req_status_empty),
-        // .s_axis_req_status_error(tx_req_status_error),
-        .s_axis_req_status_valid(tx_req_status_valid),
+        .s_axis_status_dequeue_empty(tx_status_dequeue_empty),
+        .s_axis_status_dequeue_error(tx_status_dequeue_error),
+        .s_axis_status_dequeue_tag(tx_status_dequeue_tag),
+        .s_axis_status_dequeue_valid(tx_status_dequeue_valid),
+
+        .s_axis_status_start_error(tx_status_start_error),
+        .s_axis_status_start_len(tx_status_start_len),
+        .s_axis_status_start_tag(tx_status_start_tag),
+        .s_axis_status_start_valid(tx_status_start_valid),
+
+        .s_axis_status_finish_len(tx_status_finish_len),
+        .s_axis_status_finish_tag(tx_status_finish_tag),
+        .s_axis_status_finish_valid(tx_status_finish_valid),
 
         /*
          * Transmit request input
@@ -2427,11 +2465,19 @@ if (SCHEDULERS > 1) begin
         /*
          * Transmit request status output
          */
-        .m_axis_req_status_len(tx_sched_req_status_len),
-        .m_axis_req_status_tag(tx_sched_req_status_tag),
-        // .m_axis_req_status_empty(tx_sched_req_status_empty),
-        // .m_axis_req_status_error(tx_sched_req_status_error),
-        .m_axis_req_status_valid(tx_sched_req_status_valid)
+        .m_axis_status_dequeue_empty(tx_sched_status_dequeue_empty),
+        .m_axis_status_dequeue_error(tx_sched_status_dequeue_error),
+        .m_axis_status_dequeue_tag(tx_sched_status_dequeue_tag),
+        .m_axis_status_dequeue_valid(tx_sched_status_dequeue_valid),
+
+        .m_axis_status_start_error(tx_sched_status_start_error),
+        .m_axis_status_start_len(tx_sched_status_start_len),
+        .m_axis_status_start_tag(tx_sched_status_start_tag),
+        .m_axis_status_start_valid(tx_sched_status_start_valid),
+
+        .m_axis_status_finish_len(tx_sched_status_finish_len),
+        .m_axis_status_finish_tag(tx_sched_status_finish_tag),
+        .m_axis_status_finish_valid(tx_sched_status_finish_valid)
     );
 
 end else begin
@@ -2442,9 +2488,19 @@ end else begin
     assign tx_req_valid = tx_sched_req_valid;
     assign tx_sched_req_ready = tx_req_ready;
 
-    assign tx_sched_req_status_len = tx_req_status_len;
-    assign tx_sched_req_status_tag = tx_req_status_tag;
-    assign tx_sched_req_status_valid = tx_req_status_valid;
+    assign tx_sched_status_dequeue_empty = tx_status_dequeue_empty;
+    assign tx_sched_status_dequeue_error = tx_status_dequeue_error;
+    assign tx_sched_status_dequeue_tag = tx_status_dequeue_tag;
+    assign tx_sched_status_dequeue_valid = tx_status_dequeue_valid;
+
+    assign tx_sched_status_start_error = tx_status_start_error;
+    assign tx_sched_status_start_len = tx_status_start_len;
+    assign tx_sched_status_start_tag = tx_status_start_tag;
+    assign tx_sched_status_start_valid = tx_status_start_valid;
+
+    assign tx_sched_status_finish_len = tx_status_finish_len;
+    assign tx_sched_status_finish_tag = tx_status_finish_tag;
+    assign tx_sched_status_finish_valid = tx_status_finish_valid;
 
 end
 
@@ -2535,9 +2591,19 @@ interface_tx_inst (
     /*
      * Transmit request status output
      */
-    .m_axis_tx_req_status_len(tx_req_status_len),
-    .m_axis_tx_req_status_tag(tx_req_status_tag),
-    .m_axis_tx_req_status_valid(tx_req_status_valid),
+    .m_axis_tx_status_dequeue_empty(tx_status_dequeue_empty),
+    .m_axis_tx_status_dequeue_error(tx_status_dequeue_error),
+    .m_axis_tx_status_dequeue_tag(tx_status_dequeue_tag),
+    .m_axis_tx_status_dequeue_valid(tx_status_dequeue_valid),
+
+    .m_axis_tx_status_start_error(tx_status_start_error),
+    .m_axis_tx_status_start_len(tx_status_start_len),
+    .m_axis_tx_status_start_tag(tx_status_start_tag),
+    .m_axis_tx_status_start_valid(tx_status_start_valid),
+
+    .m_axis_tx_status_finish_len(tx_status_finish_len),
+    .m_axis_tx_status_finish_tag(tx_status_finish_tag),
+    .m_axis_tx_status_finish_valid(tx_status_finish_valid),
 
     /*
      * Descriptor request output

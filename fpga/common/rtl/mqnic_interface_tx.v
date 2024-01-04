@@ -84,9 +84,19 @@ module mqnic_interface_tx #
     /*
      * Transmit request status output
      */
-    output wire [DMA_CLIENT_LEN_WIDTH-1:0]              m_axis_tx_req_status_len,
-    output wire [REQ_TAG_WIDTH-1:0]                     m_axis_tx_req_status_tag,
-    output wire                                         m_axis_tx_req_status_valid,
+    output wire                                         m_axis_tx_status_dequeue_empty,
+    output wire                                         m_axis_tx_status_dequeue_error,
+    output wire [REQ_TAG_WIDTH-1:0]                     m_axis_tx_status_dequeue_tag,
+    output wire                                         m_axis_tx_status_dequeue_valid,
+
+    output wire                                         m_axis_tx_status_start_error,
+    output wire [DMA_CLIENT_LEN_WIDTH-1:0]              m_axis_tx_status_start_len,
+    output wire [REQ_TAG_WIDTH-1:0]                     m_axis_tx_status_start_tag,
+    output wire                                         m_axis_tx_status_start_valid,
+
+    output wire [DMA_CLIENT_LEN_WIDTH-1:0]              m_axis_tx_status_finish_len,
+    output wire [REQ_TAG_WIDTH-1:0]                     m_axis_tx_status_finish_tag,
+    output wire                                         m_axis_tx_status_finish_valid,
 
     /*
      * Descriptor request output
@@ -308,9 +318,19 @@ tx_engine_inst (
     /*
      * Transmit request status output
      */
-    .m_axis_tx_req_status_len(m_axis_tx_req_status_len),
-    .m_axis_tx_req_status_tag(m_axis_tx_req_status_tag),
-    .m_axis_tx_req_status_valid(m_axis_tx_req_status_valid),
+    .m_axis_tx_status_dequeue_empty(m_axis_tx_status_dequeue_empty),
+    .m_axis_tx_status_dequeue_error(m_axis_tx_status_dequeue_error),
+    .m_axis_tx_status_dequeue_tag(m_axis_tx_status_dequeue_tag),
+    .m_axis_tx_status_dequeue_valid(m_axis_tx_status_dequeue_valid),
+
+    .m_axis_tx_status_start_error(m_axis_tx_status_start_error),
+    .m_axis_tx_status_start_len(m_axis_tx_status_start_len),
+    .m_axis_tx_status_start_tag(m_axis_tx_status_start_tag),
+    .m_axis_tx_status_start_valid(m_axis_tx_status_start_valid),
+
+    .m_axis_tx_status_finish_len(m_axis_tx_status_finish_len),
+    .m_axis_tx_status_finish_tag(m_axis_tx_status_finish_tag),
+    .m_axis_tx_status_finish_valid(m_axis_tx_status_finish_valid),
 
     /*
      * Descriptor request output

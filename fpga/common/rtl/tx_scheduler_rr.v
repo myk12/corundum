@@ -48,9 +48,19 @@ module tx_scheduler_rr #
     /*
      * Transmit request status input
      */
-    input  wire [LEN_WIDTH-1:0]          s_axis_tx_req_status_len,
-    input  wire [REQ_TAG_WIDTH-1:0]      s_axis_tx_req_status_tag,
-    input  wire                          s_axis_tx_req_status_valid,
+    input  wire                          s_axis_tx_status_dequeue_empty,
+    input  wire                          s_axis_tx_status_dequeue_error,
+    input  wire [REQ_TAG_WIDTH-1:0]      s_axis_tx_status_dequeue_tag,
+    input  wire                          s_axis_tx_status_dequeue_valid,
+
+    input  wire                          s_axis_tx_status_start_error,
+    input  wire [LEN_WIDTH-1:0]          s_axis_tx_status_start_len,
+    input  wire [REQ_TAG_WIDTH-1:0]      s_axis_tx_status_start_tag,
+    input  wire                          s_axis_tx_status_start_valid,
+
+    input  wire [LEN_WIDTH-1:0]          s_axis_tx_status_finish_len,
+    input  wire [REQ_TAG_WIDTH-1:0]      s_axis_tx_status_finish_tag,
+    input  wire                          s_axis_tx_status_finish_valid,
 
     /*
      * Doorbell input
@@ -442,8 +452,8 @@ always @* begin
     finish_fifo_rd_ptr_next = finish_fifo_rd_ptr_reg;
     finish_fifo_wr_ptr_next = finish_fifo_wr_ptr_reg;
     finish_fifo_we = 1'b0;
-    finish_fifo_wr_tag = s_axis_tx_req_status_tag;
-    finish_fifo_wr_status = s_axis_tx_req_status_len != 0;
+    finish_fifo_wr_tag = s_axis_tx_status_dequeue_tag;
+    finish_fifo_wr_status = !s_axis_tx_status_dequeue_error && !s_axis_tx_status_dequeue_empty;
 
     finish_ptr_next = finish_ptr_reg;
     finish_status_next = finish_status_reg;
@@ -736,10 +746,10 @@ always @* begin
     end
 
     // finish transmit operation
-    if (s_axis_tx_req_status_valid) begin
+    if (s_axis_tx_status_dequeue_valid) begin
         finish_fifo_we = 1'b1;
-        finish_fifo_wr_tag = s_axis_tx_req_status_tag;
-        finish_fifo_wr_status = s_axis_tx_req_status_len != 0;
+        finish_fifo_wr_tag = s_axis_tx_status_dequeue_tag;
+        finish_fifo_wr_status = !s_axis_tx_status_dequeue_error && !s_axis_tx_status_dequeue_empty;
         finish_fifo_wr_ptr_next = finish_fifo_wr_ptr_reg + 1;
     end
 
