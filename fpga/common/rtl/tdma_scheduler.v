@@ -100,9 +100,7 @@ localparam [2:0]
     STATE_UPDATE_SCHEDULE_1 = 3'd1,
     STATE_UPDATE_SCHEDULE_2 = 3'd2,
     STATE_UPDATE_SLOT_1 = 3'd3,
-    STATE_UPDATE_SLOT_2 = 3'd4,
-    STATE_UPDATE_SLOT_3 = 3'd5,
-    STATE_WAIT = 3'd6;
+    STATE_UPDATE_SLOT_2 = 3'd4;
 
 reg [2:0] state_reg = STATE_IDLE, state_next;
 
@@ -133,6 +131,7 @@ reg [30:0] active_period_ns_reg = ACTIVE_PERIOD_NS;
 reg [29:0] ts_ns_inc_reg = 0, ts_ns_inc_next;
 reg [30:0] ts_ns_ovf_reg = 0, ts_ns_ovf_next;
 
+reg restart_reg = 1'b1;
 reg locked_reg = 1'b0, locked_next;
 reg locked_int_reg = 1'b0, locked_int_next;
 reg error_reg = 1'b0, error_next;
@@ -166,7 +165,6 @@ always @* begin
     active_end_ns_next = active_end_ns_reg;
 
     ts_ns_inc_next = ts_ns_inc_reg;
-
     ts_ns_ovf_next = ts_ns_ovf_reg;
 
     locked_next = locked_reg;
@@ -180,118 +178,114 @@ always @* begin
     timeslot_end_next = 1'b0;
     timeslot_active_next = timeslot_active_reg;
 
-    if (input_schedule_start_valid || input_schedule_period_valid || input_ts_step) begin
+    case (state_reg)
+        STATE_IDLE: begin
+            // set next fall time to next rise time plus width
+            ts_ns_inc_next = next_slot_ns_reg + active_period_ns_reg;
+            ts_ns_ovf_next = next_slot_ns_reg + active_period_ns_reg - 31'd1_000_000_000;
+
+            if ((time_s_reg > first_slot_s_reg) || (time_s_reg == first_slot_s_reg && time_ns_reg > first_slot_ns_reg)) begin
+                // start of next schedule period
+                schedule_start_next = enable && locked_int_reg;
+                timeslot_index_next = 0;
+                timeslot_start_next = enable && locked_int_reg;
+                timeslot_end_next = timeslot_active_reg;
+                timeslot_active_next = enable && locked_int_reg;
+                schedule_running_next = 1'b1;
+                locked_next = locked_int_reg;
+                error_next = error_reg && !locked_int_reg;
+                state_next = STATE_UPDATE_SCHEDULE_1;
+            end else if ((time_s_reg > next_slot_s_reg) || (time_s_reg == next_slot_s_reg && time_ns_reg > next_slot_ns_reg)) begin
+                // start of next timeslot
+                timeslot_index_next = timeslot_index_reg + 1;
+                timeslot_start_next = enable && locked_reg;
+                timeslot_end_next = timeslot_active_reg;
+                timeslot_active_next = enable && locked_reg;
+                state_next = STATE_UPDATE_SLOT_1;
+            end else if (timeslot_active_reg && ((time_s_reg > active_end_s_reg) || (time_s_reg == active_end_s_reg && time_ns_reg > active_end_ns_reg))) begin
+                // end of timeslot
+                timeslot_end_next = 1'b1;
+                timeslot_active_next = 1'b0;
+                state_next = STATE_IDLE;
+            end else begin
+                locked_int_next = schedule_running_reg;
+                state_next = STATE_IDLE;
+            end
+        end
+        STATE_UPDATE_SCHEDULE_1: begin
+            // set next schedule start time to next schedule start time plus schedule period
+            ts_ns_inc_next = first_slot_ns_reg + schedule_period_ns_reg;
+            ts_ns_ovf_next = first_slot_ns_reg + schedule_period_ns_reg - 31'd1_000_000_000;
+            // transfer first slot start time
+            next_slot_s_next = first_slot_s_reg;
+            next_slot_ns_next = first_slot_ns_reg;
+            state_next = STATE_UPDATE_SCHEDULE_2;
+        end
+        STATE_UPDATE_SCHEDULE_2: begin
+            if (!ts_ns_ovf_reg[30]) begin
+                // if the overflow lookahead did not borrow, one second has elapsed
+                first_slot_s_next = first_slot_s_reg + schedule_period_s_reg + 1;
+                first_slot_ns_next = ts_ns_ovf_reg;
+            end else begin
+                // no increment seconds field
+                first_slot_s_next = first_slot_s_reg + schedule_period_s_reg;
+                first_slot_ns_next = ts_ns_inc_reg;
+            end
+            // set next fall time to next rise time plus width
+            ts_ns_inc_next = next_slot_ns_reg + active_period_ns_reg;
+            ts_ns_ovf_next = next_slot_ns_reg + active_period_ns_reg - 31'd1_000_000_000;
+            state_next = STATE_UPDATE_SLOT_1;
+        end
+        STATE_UPDATE_SLOT_1: begin
+            if (!ts_ns_ovf_reg[30]) begin
+                // if the overflow lookahead did not borrow, one second has elapsed
+                active_end_s_next = next_slot_s_reg + active_period_s_reg + 1;
+                active_end_ns_next = ts_ns_ovf_reg;
+            end else begin
+                // no increment seconds field
+                active_end_s_next = next_slot_s_reg + active_period_s_reg;
+                active_end_ns_next = ts_ns_inc_reg;
+            end
+            // set next timeslot start time to next timeslot start time plus timeslot period
+            ts_ns_inc_next = next_slot_ns_reg + timeslot_period_ns_reg;
+            ts_ns_ovf_next = next_slot_ns_reg + timeslot_period_ns_reg - 31'd1_000_000_000;
+            state_next = STATE_UPDATE_SLOT_2;
+        end
+        STATE_UPDATE_SLOT_2: begin
+            if (!ts_ns_ovf_reg[30]) begin
+                // if the overflow lookahead did not borrow, one second has elapsed
+                next_slot_s_next = next_slot_s_reg + timeslot_period_s_reg + 1;
+                next_slot_ns_next = ts_ns_ovf_reg;
+            end else begin
+                // no increment seconds field
+                next_slot_s_next = next_slot_s_reg + timeslot_period_s_reg;
+                next_slot_ns_next = ts_ns_inc_reg;
+            end
+            state_next = STATE_IDLE;
+        end
+    endcase
+
+    if (restart_reg || input_ts_step) begin
+        // set next rise to start time
+        first_slot_s_next = schedule_start_s_reg;
+        first_slot_ns_next = schedule_start_ns_reg;
+        next_slot_s_next = schedule_start_s_reg;
+        next_slot_ns_next = schedule_start_ns_reg;
         timeslot_index_next = 0;
         timeslot_start_next = 1'b0;
         timeslot_end_next = timeslot_active_reg;
         timeslot_active_next = 1'b0;
+        locked_next = 1'b0;
+        locked_int_next = 1'b0;
+        schedule_running_next = 1'b0;
         error_next = input_ts_step;
         state_next = STATE_IDLE;
-    end else begin
-        case (state_reg)
-            STATE_IDLE: begin
-                // set next rise to start time
-                first_slot_s_next = schedule_start_s_reg;
-                first_slot_ns_next = schedule_start_ns_reg;
-                next_slot_s_next = schedule_start_s_reg;
-                next_slot_ns_next = schedule_start_ns_reg;
-                timeslot_index_next = 0;
-                timeslot_start_next = 1'b0;
-                timeslot_end_next = timeslot_active_reg;
-                timeslot_active_next = 1'b0;
-                locked_next = 1'b0;
-                locked_int_next = 1'b0;
-                schedule_running_next = 1'b0;
-                state_next = STATE_WAIT;
-            end
-            STATE_UPDATE_SCHEDULE_1: begin
-                // set next schedule start time to next schedule start time plus schedule period
-                ts_ns_inc_next = first_slot_ns_reg + schedule_period_ns_reg;
-                ts_ns_ovf_next = first_slot_ns_reg + schedule_period_ns_reg - 31'd1_000_000_000;
-                state_next = STATE_UPDATE_SCHEDULE_2;
-            end
-            STATE_UPDATE_SCHEDULE_2: begin
-                if (!ts_ns_ovf_reg[30]) begin
-                    // if the overflow lookahead did not borrow, one second has elapsed
-                    first_slot_s_next = first_slot_s_reg + schedule_period_s_reg + 1;
-                    first_slot_ns_next = ts_ns_ovf_reg;
-                end else begin
-                    // no increment seconds field
-                    first_slot_s_next = first_slot_s_reg + schedule_period_s_reg;
-                    first_slot_ns_next = ts_ns_inc_reg;
-                end
-                next_slot_s_next = first_slot_s_reg;
-                next_slot_ns_next = first_slot_ns_reg;
-                state_next = STATE_UPDATE_SLOT_1;
-            end
-            STATE_UPDATE_SLOT_1: begin
-                // set next fall time to next rise time plus width
-                ts_ns_inc_next = next_slot_ns_reg + active_period_ns_reg;
-                ts_ns_ovf_next = next_slot_ns_reg + active_period_ns_reg - 31'd1_000_000_000;
-                state_next = STATE_UPDATE_SLOT_2;
-            end
-            STATE_UPDATE_SLOT_2: begin
-                if (!ts_ns_ovf_reg[30]) begin
-                    // if the overflow lookahead did not borrow, one second has elapsed
-                    active_end_s_next = next_slot_s_reg + active_period_s_reg + 1;
-                    active_end_ns_next = ts_ns_ovf_reg;
-                end else begin
-                    // no increment seconds field
-                    active_end_s_next = next_slot_s_reg + active_period_s_reg;
-                    active_end_ns_next = ts_ns_inc_reg;
-                end
-                // set next timeslot start time to next timeslot start time plus timeslot period
-                ts_ns_inc_next = next_slot_ns_reg + timeslot_period_ns_reg;
-                ts_ns_ovf_next = next_slot_ns_reg + timeslot_period_ns_reg - 31'd1_000_000_000;
-                state_next = STATE_UPDATE_SLOT_3;
-            end
-            STATE_UPDATE_SLOT_3: begin
-                if (!ts_ns_ovf_reg[30]) begin
-                    // if the overflow lookahead did not borrow, one second has elapsed
-                    next_slot_s_next = next_slot_s_reg + timeslot_period_s_reg + 1;
-                    next_slot_ns_next = ts_ns_ovf_reg;
-                end else begin
-                    // no increment seconds field
-                    next_slot_s_next = next_slot_s_reg + timeslot_period_s_reg;
-                    next_slot_ns_next = ts_ns_inc_reg;
-                end
-                state_next = STATE_WAIT;
-            end
-            STATE_WAIT: begin
-                if ((time_s_reg > first_slot_s_reg) || (time_s_reg == first_slot_s_reg && time_ns_reg > first_slot_ns_reg)) begin
-                    // start of next schedule period
-                    schedule_start_next = enable && locked_int_reg;
-                    timeslot_index_next = 0;
-                    timeslot_start_next = enable && locked_int_reg;
-                    timeslot_end_next = timeslot_active_reg;
-                    timeslot_active_next = enable && locked_int_reg;
-                    schedule_running_next = 1'b1;
-                    locked_next = locked_int_reg;
-                    error_next = error_reg && !locked_int_reg;
-                    state_next = STATE_UPDATE_SCHEDULE_1;
-                end else if ((time_s_reg > next_slot_s_reg) || (time_s_reg == next_slot_s_reg && time_ns_reg > next_slot_ns_reg)) begin
-                    // start of next timeslot
-                    timeslot_index_next = timeslot_index_reg + 1;
-                    timeslot_start_next = enable && locked_reg;
-                    timeslot_end_next = timeslot_active_reg;
-                    timeslot_active_next = enable && locked_reg;
-                    state_next = STATE_UPDATE_SLOT_1;
-                end else if (timeslot_active_reg && ((time_s_reg > active_end_s_reg) || (time_s_reg == active_end_s_reg && time_ns_reg > active_end_ns_reg))) begin
-                    // end of timeslot
-                    timeslot_end_next = 1'b1;
-                    timeslot_active_next = 1'b0;
-                    state_next = STATE_WAIT;
-                end else begin
-                    locked_int_next = schedule_running_reg;
-                    state_next = STATE_WAIT;
-                end
-            end
-        endcase
     end
 end
 
 always @(posedge clk) begin
     state_reg <= state_next;
+    restart_reg <= 1'b0;
 
     time_s_reg <= input_ts_96[95:48];
     time_ns_reg <= input_ts_96[45:16];
@@ -299,11 +293,13 @@ always @(posedge clk) begin
     if (input_schedule_start_valid) begin
         schedule_start_s_reg <= input_schedule_start[79:32];
         schedule_start_ns_reg <= input_schedule_start[31:0];
+        restart_reg <= 1'b1;
     end
 
     if (input_schedule_period_valid) begin
         schedule_period_s_reg <= input_schedule_period[79:32];
         schedule_period_ns_reg <= input_schedule_period[31:0];
+        restart_reg <= 1'b1;
     end
 
     if (input_timeslot_period_valid) begin
@@ -341,6 +337,7 @@ always @(posedge clk) begin
 
     if (rst) begin
         state_reg <= STATE_IDLE;
+        restart_reg <= 1'b1;
 
         time_s_reg <= 0;
         time_ns_reg <= 0;
