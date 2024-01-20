@@ -133,9 +133,8 @@ reg [30:0] ts_ns_ovf_reg = 0, ts_ns_ovf_next;
 
 reg restart_reg = 1'b1;
 reg locked_reg = 1'b0, locked_next;
-reg locked_int_reg = 1'b0, locked_int_next;
 reg error_reg = 1'b0, error_next;
-reg schedule_running_reg = 1'b0, schedule_running_next;
+reg ffwd_reg = 1'b0, ffwd_next;
 
 reg schedule_start_reg = 1'b0, schedule_start_next;
 reg [INDEX_WIDTH-1:0] timeslot_index_reg = 0, timeslot_index_next;
@@ -168,9 +167,8 @@ always @* begin
     ts_ns_ovf_next = ts_ns_ovf_reg;
 
     locked_next = locked_reg;
-    locked_int_next = locked_int_reg;
     error_next = error_reg;
-    schedule_running_next = schedule_running_reg;
+    ffwd_next = ffwd_reg;
 
     schedule_start_next = 1'b0;
     timeslot_index_next = timeslot_index_reg;
@@ -186,14 +184,13 @@ always @* begin
 
             if ((time_s_reg > first_slot_s_reg) || (time_s_reg == first_slot_s_reg && time_ns_reg > first_slot_ns_reg)) begin
                 // start of next schedule period
-                schedule_start_next = enable && locked_int_reg;
+                schedule_start_next = enable && !ffwd_reg;
                 timeslot_index_next = 0;
-                timeslot_start_next = enable && locked_int_reg;
+                timeslot_start_next = enable && !ffwd_reg;
                 timeslot_end_next = timeslot_active_reg;
-                timeslot_active_next = enable && locked_int_reg;
-                schedule_running_next = 1'b1;
-                locked_next = locked_int_reg;
-                error_next = error_reg && !locked_int_reg;
+                timeslot_active_next = enable && !ffwd_reg;
+                locked_next = !ffwd_reg;
+                error_next = error_reg && ffwd_reg;
                 state_next = STATE_UPDATE_SCHEDULE_1;
             end else if ((time_s_reg > next_slot_s_reg) || (time_s_reg == next_slot_s_reg && time_ns_reg > next_slot_ns_reg)) begin
                 // start of next timeslot
@@ -208,7 +205,7 @@ always @* begin
                 timeslot_active_next = 1'b0;
                 state_next = STATE_IDLE;
             end else begin
-                locked_int_next = schedule_running_reg;
+                ffwd_next = 1'b0;
                 state_next = STATE_IDLE;
             end
         end
@@ -276,8 +273,7 @@ always @* begin
         timeslot_end_next = timeslot_active_reg;
         timeslot_active_next = 1'b0;
         locked_next = 1'b0;
-        locked_int_next = 1'b0;
-        schedule_running_next = 1'b0;
+        ffwd_next = 1'b1;
         error_next = input_ts_step;
         state_next = STATE_IDLE;
     end
@@ -325,9 +321,8 @@ always @(posedge clk) begin
     ts_ns_ovf_reg <= ts_ns_ovf_next;
 
     locked_reg <= locked_next;
-    locked_int_reg <= locked_int_next;
     error_reg <= error_next;
-    schedule_running_reg <= schedule_running_next;
+    ffwd_reg <= ffwd_next;
 
     schedule_start_reg <= schedule_start_next;
     timeslot_index_reg <= timeslot_index_next;
@@ -355,9 +350,8 @@ always @(posedge clk) begin
         active_period_ns_reg <= ACTIVE_PERIOD_NS;
 
         locked_reg <= 1'b0;
-        locked_int_reg <= 1'b0;
         error_reg <= 1'b0;
-        schedule_running_reg <= 1'b0;
+        ffwd_reg <= 1'b0;
 
         schedule_start_reg <= 1'b0;
         timeslot_index_reg <= 0;
