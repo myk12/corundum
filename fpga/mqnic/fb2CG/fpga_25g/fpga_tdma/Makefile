@@ -58,8 +58,7 @@ SYN_FILES += rtl/common/mqnic_tx_scheduler_block_rr_tdma.v
 SYN_FILES += rtl/common/tx_scheduler_rr.v
 SYN_FILES += rtl/common/tx_scheduler_ctrl_tdma.v
 SYN_FILES += rtl/common/tdma_scheduler.v
-SYN_FILES += rtl/common/tdma_ber.v
-SYN_FILES += rtl/common/tdma_ber_ch.v
+SYN_FILES += rtl/common/mqnic_tdma_ber.v
 SYN_FILES += rtl/common/led_sreg_driver.v
 SYN_FILES += lib/eth/rtl/eth_mac_10g.v
 SYN_FILES += lib/eth/rtl/axis_xgmii_rx_64.v
@@ -144,7 +143,7 @@ XDC_FILES += ../../../common/syn/vivado/mqnic_ptp_clock.tcl
 XDC_FILES += ../../../common/syn/vivado/mqnic_rb_clk_info.tcl
 XDC_FILES += ../../../common/syn/vivado/rb_drp.tcl
 XDC_FILES += ../../../common/syn/vivado/eth_xcvr_phy_10g_gty_wrapper.tcl
-XDC_FILES += ../../../common/syn/vivado/tdma_ber_ch.tcl
+XDC_FILES += ../../../common/syn/vivado/mqnic_tdma_ber.tcl
 XDC_FILES += ../../../common/syn/vivado/led_sreg_driver.tcl
 
 # IP
