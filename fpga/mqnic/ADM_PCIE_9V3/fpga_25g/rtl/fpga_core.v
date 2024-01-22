@@ -490,6 +490,7 @@ localparam RBB = RB_BASE_ADDR & {AXIL_CTRL_ADDR_WIDTH{1'b1}};
 
 localparam RB_DRP_QSFP_0_BASE = RB_BASE_ADDR + 16'h50;
 localparam RB_DRP_QSFP_1_BASE = RB_DRP_QSFP_0_BASE + 16'h20;
+localparam RB_TDMA_BER_BASE = RB_DRP_QSFP_1_BASE + 16'h20;
 
 initial begin
     if (PORT_COUNT > 8) begin
@@ -497,27 +498,6 @@ initial begin
         $finish;
     end
 end
-
-// AXI lite connections
-wire [AXIL_CSR_ADDR_WIDTH-1:0]   axil_csr_awaddr;
-wire [2:0]                       axil_csr_awprot;
-wire                             axil_csr_awvalid;
-wire                             axil_csr_awready;
-wire [AXIL_CTRL_DATA_WIDTH-1:0]  axil_csr_wdata;
-wire [AXIL_CTRL_STRB_WIDTH-1:0]  axil_csr_wstrb;
-wire                             axil_csr_wvalid;
-wire                             axil_csr_wready;
-wire [1:0]                       axil_csr_bresp;
-wire                             axil_csr_bvalid;
-wire                             axil_csr_bready;
-wire [AXIL_CSR_ADDR_WIDTH-1:0]   axil_csr_araddr;
-wire [2:0]                       axil_csr_arprot;
-wire                             axil_csr_arvalid;
-wire                             axil_csr_arready;
-wire [AXIL_CTRL_DATA_WIDTH-1:0]  axil_csr_rdata;
-wire [1:0]                       axil_csr_rresp;
-wire                             axil_csr_rvalid;
-wire                             axil_csr_rready;
 
 // PTP
 wire         ptp_td_sd;
@@ -560,6 +540,12 @@ wire [AXIL_CTRL_DATA_WIDTH-1:0] qsfp_1_drp_reg_rd_data;
 wire qsfp_1_drp_reg_rd_wait;
 wire qsfp_1_drp_reg_rd_ack;
 
+wire tdma_ber_reg_wr_wait;
+wire tdma_ber_reg_wr_ack;
+wire [AXIL_CTRL_DATA_WIDTH-1:0] tdma_ber_reg_rd_data;
+wire tdma_ber_reg_rd_wait;
+wire tdma_ber_reg_rd_ack;
+
 reg ctrl_reg_wr_ack_reg = 1'b0;
 reg [AXIL_CTRL_DATA_WIDTH-1:0] ctrl_reg_rd_data_reg = {AXIL_CTRL_DATA_WIDTH{1'b0}};
 reg ctrl_reg_rd_ack_reg = 1'b0;
@@ -589,11 +575,11 @@ reg qspi_1_cs_reg = 1'b1;
 reg [3:0] qspi_1_dq_o_reg = 4'd0;
 reg [3:0] qspi_1_dq_oe_reg = 4'd0;
 
-assign ctrl_reg_wr_wait = qsfp_0_drp_reg_wr_wait | qsfp_1_drp_reg_wr_wait;
-assign ctrl_reg_wr_ack = ctrl_reg_wr_ack_reg | qsfp_0_drp_reg_wr_ack | qsfp_1_drp_reg_wr_ack;
-assign ctrl_reg_rd_data = ctrl_reg_rd_data_reg | qsfp_0_drp_reg_rd_data | qsfp_1_drp_reg_rd_data;
-assign ctrl_reg_rd_wait = qsfp_0_drp_reg_rd_wait | qsfp_1_drp_reg_rd_wait;
-assign ctrl_reg_rd_ack = ctrl_reg_rd_ack_reg | qsfp_0_drp_reg_rd_ack | qsfp_1_drp_reg_rd_ack;
+assign ctrl_reg_wr_wait = qsfp_0_drp_reg_wr_wait | qsfp_1_drp_reg_wr_wait | tdma_ber_reg_wr_wait;
+assign ctrl_reg_wr_ack = ctrl_reg_wr_ack_reg | qsfp_0_drp_reg_wr_ack | qsfp_1_drp_reg_wr_ack | tdma_ber_reg_wr_ack;
+assign ctrl_reg_rd_data = ctrl_reg_rd_data_reg | qsfp_0_drp_reg_rd_data | qsfp_1_drp_reg_rd_data | tdma_ber_reg_rd_data;
+assign ctrl_reg_rd_wait = qsfp_0_drp_reg_rd_wait | qsfp_1_drp_reg_rd_wait | tdma_ber_reg_rd_wait;
+assign ctrl_reg_rd_ack = ctrl_reg_rd_ack_reg | qsfp_0_drp_reg_rd_ack | qsfp_1_drp_reg_rd_ack | tdma_ber_reg_rd_ack;
 
 assign qsfp_0_sel_l = !qsfp_i2c_select[0];
 assign qsfp_1_sel_l = !qsfp_i2c_select[1];
@@ -868,7 +854,7 @@ rb_drp #(
     .REG_DATA_WIDTH(AXIL_CTRL_DATA_WIDTH),
     .REG_STRB_WIDTH(AXIL_CTRL_STRB_WIDTH),
     .RB_BASE_ADDR(RB_DRP_QSFP_1_BASE),
-    .RB_NEXT_PTR(0)
+    .RB_NEXT_PTR(RB_TDMA_BER_BASE)
 )
 qsfp_1_rb_drp_inst (
     .clk(clk_250mhz),
@@ -907,54 +893,62 @@ generate
 if (TDMA_BER_ENABLE) begin
 
     // BER tester
-    tdma_ber #(
+    mqnic_tdma_ber #(
         .COUNT(8),
-        .INDEX_WIDTH(6),
-        .SLICE_WIDTH(5),
-        .AXIL_DATA_WIDTH(AXIL_CTRL_DATA_WIDTH),
-        .AXIL_ADDR_WIDTH(8+6+$clog2(8)),
-        .AXIL_STRB_WIDTH(AXIL_CTRL_STRB_WIDTH),
-        .SCHEDULE_START_S(0),
-        .SCHEDULE_START_NS(0),
-        .SCHEDULE_PERIOD_S(0),
-        .SCHEDULE_PERIOD_NS(1000000),
-        .TIMESLOT_PERIOD_S(0),
-        .TIMESLOT_PERIOD_NS(100000),
-        .ACTIVE_PERIOD_S(0),
-        .ACTIVE_PERIOD_NS(90000)
+        .TDMA_INDEX_W(TDMA_INDEX_WIDTH),
+        .ERR_BITS(66),
+        .ERR_CNT_W(7),
+        .RAM_SIZE(1024),
+        .PHY_PIPELINE(2),
+
+        .REG_ADDR_WIDTH(AXIL_CSR_ADDR_WIDTH),
+        .REG_DATA_WIDTH(AXIL_CTRL_DATA_WIDTH),
+        .REG_STRB_WIDTH(AXIL_CTRL_STRB_WIDTH),
+        .RB_BASE_ADDR(RB_TDMA_BER_BASE),
+        .RB_NEXT_PTR(0)
     )
     tdma_ber_inst (
         .clk(clk_250mhz),
         .rst(rst_250mhz),
+
+        /*
+         * Register interface
+         */
+        .ctrl_reg_wr_addr(ctrl_reg_wr_addr),
+        .ctrl_reg_wr_data(ctrl_reg_wr_data),
+        .ctrl_reg_wr_strb(ctrl_reg_wr_strb),
+        .ctrl_reg_wr_en(ctrl_reg_wr_en),
+        .ctrl_reg_wr_wait(tdma_ber_reg_wr_wait),
+        .ctrl_reg_wr_ack(tdma_ber_reg_wr_ack),
+        .ctrl_reg_rd_addr(ctrl_reg_rd_addr),
+        .ctrl_reg_rd_en(ctrl_reg_rd_en),
+        .ctrl_reg_rd_data(tdma_ber_reg_rd_data),
+        .ctrl_reg_rd_wait(tdma_ber_reg_rd_wait),
+        .ctrl_reg_rd_ack(tdma_ber_reg_rd_ack),
+
+        /*
+         * PTP clock
+         */
+        .ptp_ts_tod(ptp_sync_ts_tod),
+        .ptp_ts_tod_step(ptp_sync_ts_tod_step),
+
+        /*
+         * PHY connections
+         */
         .phy_tx_clk({qsfp_1_tx_clk_3, qsfp_1_tx_clk_2, qsfp_1_tx_clk_1, qsfp_1_tx_clk_0, qsfp_0_tx_clk_3, qsfp_0_tx_clk_2, qsfp_0_tx_clk_1, qsfp_0_tx_clk_0}),
         .phy_rx_clk({qsfp_1_rx_clk_3, qsfp_1_rx_clk_2, qsfp_1_rx_clk_1, qsfp_1_rx_clk_0, qsfp_0_rx_clk_3, qsfp_0_rx_clk_2, qsfp_0_rx_clk_1, qsfp_0_rx_clk_0}),
         .phy_rx_error_count({qsfp_1_rx_error_count_3, qsfp_1_rx_error_count_2, qsfp_1_rx_error_count_1, qsfp_1_rx_error_count_0, qsfp_0_rx_error_count_3, qsfp_0_rx_error_count_2, qsfp_0_rx_error_count_1, qsfp_0_rx_error_count_0}),
         .phy_cfg_tx_prbs31_enable({qsfp_1_cfg_tx_prbs31_enable_3, qsfp_1_cfg_tx_prbs31_enable_2, qsfp_1_cfg_tx_prbs31_enable_1, qsfp_1_cfg_tx_prbs31_enable_0, qsfp_0_cfg_tx_prbs31_enable_3, qsfp_0_cfg_tx_prbs31_enable_2, qsfp_0_cfg_tx_prbs31_enable_1, qsfp_0_cfg_tx_prbs31_enable_0}),
-        .phy_cfg_rx_prbs31_enable({qsfp_1_cfg_rx_prbs31_enable_3, qsfp_1_cfg_rx_prbs31_enable_2, qsfp_1_cfg_rx_prbs31_enable_1, qsfp_1_cfg_rx_prbs31_enable_0, qsfp_0_cfg_rx_prbs31_enable_3, qsfp_0_cfg_rx_prbs31_enable_2, qsfp_0_cfg_rx_prbs31_enable_1, qsfp_0_cfg_rx_prbs31_enable_0}),
-        .s_axil_awaddr(axil_csr_awaddr),
-        .s_axil_awprot(axil_csr_awprot),
-        .s_axil_awvalid(axil_csr_awvalid),
-        .s_axil_awready(axil_csr_awready),
-        .s_axil_wdata(axil_csr_wdata),
-        .s_axil_wstrb(axil_csr_wstrb),
-        .s_axil_wvalid(axil_csr_wvalid),
-        .s_axil_wready(axil_csr_wready),
-        .s_axil_bresp(axil_csr_bresp),
-        .s_axil_bvalid(axil_csr_bvalid),
-        .s_axil_bready(axil_csr_bready),
-        .s_axil_araddr(axil_csr_araddr),
-        .s_axil_arprot(axil_csr_arprot),
-        .s_axil_arvalid(axil_csr_arvalid),
-        .s_axil_arready(axil_csr_arready),
-        .s_axil_rdata(axil_csr_rdata),
-        .s_axil_rresp(axil_csr_rresp),
-        .s_axil_rvalid(axil_csr_rvalid),
-        .s_axil_rready(axil_csr_rready),
-        .ptp_ts_96(ptp_sync_ts_tod),
-        .ptp_ts_step(ptp_sync_ts_tod_step)
+        .phy_cfg_rx_prbs31_enable({qsfp_1_cfg_rx_prbs31_enable_3, qsfp_1_cfg_rx_prbs31_enable_2, qsfp_1_cfg_rx_prbs31_enable_1, qsfp_1_cfg_rx_prbs31_enable_0, qsfp_0_cfg_rx_prbs31_enable_3, qsfp_0_cfg_rx_prbs31_enable_2, qsfp_0_cfg_rx_prbs31_enable_1, qsfp_0_cfg_rx_prbs31_enable_0})
     );
 
 end else begin
+
+    assign tdma_ber_reg_wr_wait = 0;
+    assign tdma_ber_reg_wr_ack = 0;
+    assign tdma_ber_reg_rd_data = 0;
+    assign tdma_ber_reg_rd_wait = 0;
+    assign tdma_ber_reg_rd_ack = 0;
 
     assign qsfp_0_cfg_tx_prbs31_enable_0 = 1'b0;
     assign qsfp_0_cfg_rx_prbs31_enable_0 = 1'b0;
@@ -1389,7 +1383,7 @@ mqnic_core_pcie_us #(
     .AXIL_CTRL_STRB_WIDTH(AXIL_CTRL_STRB_WIDTH),
     .AXIL_IF_CTRL_ADDR_WIDTH(AXIL_IF_CTRL_ADDR_WIDTH),
     .AXIL_CSR_ADDR_WIDTH(AXIL_CSR_ADDR_WIDTH),
-    .AXIL_CSR_PASSTHROUGH_ENABLE(TDMA_BER_ENABLE),
+    .AXIL_CSR_PASSTHROUGH_ENABLE(0),
     .RB_NEXT_PTR(RB_BASE_ADDR),
 
     // AXI lite interface configuration (application control)
@@ -1523,25 +1517,25 @@ core_inst (
     /*
      * AXI-Lite master interface (passthrough for NIC control and status)
      */
-    .m_axil_csr_awaddr(axil_csr_awaddr),
-    .m_axil_csr_awprot(axil_csr_awprot),
-    .m_axil_csr_awvalid(axil_csr_awvalid),
-    .m_axil_csr_awready(axil_csr_awready),
-    .m_axil_csr_wdata(axil_csr_wdata),
-    .m_axil_csr_wstrb(axil_csr_wstrb),
-    .m_axil_csr_wvalid(axil_csr_wvalid),
-    .m_axil_csr_wready(axil_csr_wready),
-    .m_axil_csr_bresp(axil_csr_bresp),
-    .m_axil_csr_bvalid(axil_csr_bvalid),
-    .m_axil_csr_bready(axil_csr_bready),
-    .m_axil_csr_araddr(axil_csr_araddr),
-    .m_axil_csr_arprot(axil_csr_arprot),
-    .m_axil_csr_arvalid(axil_csr_arvalid),
-    .m_axil_csr_arready(axil_csr_arready),
-    .m_axil_csr_rdata(axil_csr_rdata),
-    .m_axil_csr_rresp(axil_csr_rresp),
-    .m_axil_csr_rvalid(axil_csr_rvalid),
-    .m_axil_csr_rready(axil_csr_rready),
+    .m_axil_csr_awaddr(),
+    .m_axil_csr_awprot(),
+    .m_axil_csr_awvalid(),
+    .m_axil_csr_awready(1),
+    .m_axil_csr_wdata(),
+    .m_axil_csr_wstrb(),
+    .m_axil_csr_wvalid(),
+    .m_axil_csr_wready(1),
+    .m_axil_csr_bresp(0),
+    .m_axil_csr_bvalid(0),
+    .m_axil_csr_bready(),
+    .m_axil_csr_araddr(),
+    .m_axil_csr_arprot(),
+    .m_axil_csr_arvalid(),
+    .m_axil_csr_arready(1),
+    .m_axil_csr_rdata(0),
+    .m_axil_csr_rresp(0),
+    .m_axil_csr_rvalid(0),
+    .m_axil_csr_rready(),
 
     /*
      * Control register interface
