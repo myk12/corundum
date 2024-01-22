@@ -77,7 +77,7 @@ The NIC register space is constructed from a linked list of register blocks.  Ea
     0x0000C031  0x00000400  :ref:`rb_qm_rx`
     0x0000C040  0x00000100  :ref:`rb_sched_rr`
     0x0000C050  0x00000100  :ref:`rb_sched_ctrl_tdma`
-    0x0000C060  0x00000100  :ref:`rb_tdma_sch`
+    0x0000C060  0x00000200  :ref:`rb_tdma_sch`
     0x0000C080  0x00000200  :ref:`rb_phc`
     0x0000C081  0x00000100  :ref:`rb_phc_perout`
     0x0000C090  0x00000200  :ref:`rb_rx_queue_map`

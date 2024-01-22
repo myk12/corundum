@@ -750,18 +750,9 @@ async def run_test_nic(dut):
 
     # configure TDMA scheduler
     tdma_sch_rb = tb.driver.interfaces[0].sched_blocks[0].reg_blocks.find(mqnic.MQNIC_RB_TDMA_SCH_TYPE, mqnic.MQNIC_RB_TDMA_SCH_VER, 0)
-    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_SCH_PERIOD_FNS,   0)
     await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_SCH_PERIOD_NS,    40000)
-    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_SCH_PERIOD_SEC_L, 0)
-    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_SCH_PERIOD_SEC_H, 0)
-    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_TS_PERIOD_FNS,   0)
-    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_TS_PERIOD_NS,    10000)
-    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_TS_PERIOD_SEC_L, 0)
-    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_TS_PERIOD_SEC_H, 0)
-    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_ACTIVE_PERIOD_FNS,   0)
-    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_ACTIVE_PERIOD_NS,    5000)
-    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_ACTIVE_PERIOD_SEC_L, 0)
-    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_ACTIVE_PERIOD_SEC_H, 0)
+    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_TS_PERIOD_NS,     10000)
+    await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_ACTIVE_PERIOD_NS, 5000)
     await tdma_sch_rb.write_dword(mqnic.MQNIC_RB_TDMA_SCH_REG_CTRL, 0x00000001)
 
     # enable queues with global enable off

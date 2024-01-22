@@ -263,38 +263,32 @@ always @(posedge clk) begin
                 end
             end
             // TDMA scheduler
-            RBB+8'h60: begin
+            RBB+8'h5C: begin
                 // TDMA: control
                 if (ctrl_reg_wr_strb[0]) begin
                     tdma_enable_reg <= ctrl_reg_wr_data[0];
                 end
             end
-            RBB+8'h74: set_tdma_schedule_start_reg[29:0] <= ctrl_reg_wr_data;  // TDMA: schedule start ns
-            RBB+8'h78: set_tdma_schedule_start_reg[63:32] <= ctrl_reg_wr_data; // TDMA: schedule start sec l
-            RBB+8'h7C: begin
+            RBB+8'h64: set_tdma_schedule_start_reg[29:0] <= ctrl_reg_wr_data;  // TDMA: schedule start ns
+            RBB+8'h68: set_tdma_schedule_start_reg[63:32] <= ctrl_reg_wr_data; // TDMA: schedule start sec l
+            RBB+8'h6C: begin
                 // TDMA: schedule start sec h
                 set_tdma_schedule_start_reg[79:64] <= ctrl_reg_wr_data;
                 set_tdma_schedule_start_valid_reg <= 1'b1;
             end
-            RBB+8'h84: set_tdma_schedule_period_reg[29:0] <= ctrl_reg_wr_data;  // TDMA: schedule period ns
-            RBB+8'h88: set_tdma_schedule_period_reg[63:32] <= ctrl_reg_wr_data; // TDMA: schedule period sec l
-            RBB+8'h8C: begin
-                // TDMA: schedule period sec h
-                set_tdma_schedule_period_reg[79:64] <= ctrl_reg_wr_data;
+            RBB+8'h74: begin
+                // TDMA: schedule period ns
+                set_tdma_schedule_period_reg[29:0] <= ctrl_reg_wr_data;
                 set_tdma_schedule_period_valid_reg <= 1'b1;
             end
-            RBB+8'h94: set_tdma_timeslot_period_reg[29:0] <= ctrl_reg_wr_data;  // TDMA: timeslot period ns
-            RBB+8'h98: set_tdma_timeslot_period_reg[63:32] <= ctrl_reg_wr_data; // TDMA: timeslot period sec l
-            RBB+8'h9C: begin
-                // TDMA: timeslot period sec h
-                set_tdma_timeslot_period_reg[79:64] <= ctrl_reg_wr_data;
+            RBB+8'h78: begin
+                // TDMA: timeslot period ns
+                set_tdma_timeslot_period_reg[29:0] <= ctrl_reg_wr_data;
                 set_tdma_timeslot_period_valid_reg <= 1'b1;
             end
-            RBB+8'hA4: set_tdma_active_period_reg[29:0] <= ctrl_reg_wr_data;  // TDMA: active period ns
-            RBB+8'hA8: set_tdma_active_period_reg[63:32] <= ctrl_reg_wr_data; // TDMA: active period sec l
-            RBB+8'hAC: begin
-                // TDMA: active period sec h
-                set_tdma_active_period_reg[79:64] <= ctrl_reg_wr_data;
+            RBB+8'h7C: begin
+                // TDMA: active period ns
+                set_tdma_active_period_reg[29:0] <= ctrl_reg_wr_data;
                 set_tdma_active_period_valid_reg <= 1'b1;
             end
             default: ctrl_reg_wr_ack_reg <= 1'b0;
@@ -336,30 +330,21 @@ always @(posedge clk) begin
             RBB+8'h4C: ctrl_reg_rd_data_reg <= 2**TDMA_INDEX_WIDTH;   // Sched ctrl: Timeslot count
             // TDMA scheduler
             RBB+8'h50: ctrl_reg_rd_data_reg <= 32'h0000C060;          // TDMA: Type
-            RBB+8'h54: ctrl_reg_rd_data_reg <= 32'h00000100;          // TDMA: Version
+            RBB+8'h54: ctrl_reg_rd_data_reg <= 32'h00000200;          // TDMA: Version
             RBB+8'h58: ctrl_reg_rd_data_reg <= 0;                     // TDMA: Next header
-            RBB+8'h5C: ctrl_reg_rd_data_reg <= 2**TDMA_INDEX_WIDTH;   // TDMA: Timeslot count
-            RBB+8'h60: begin
+            RBB+8'h5C: begin
                 // TDMA: control
                 ctrl_reg_rd_data_reg[0] <= tdma_enable_reg;
+                ctrl_reg_rd_data_reg[8] <= tdma_locked;
+                ctrl_reg_rd_data_reg[9] <= tdma_error;
+                ctrl_reg_rd_data_reg[31:16] <= 2**TDMA_INDEX_WIDTH;
             end
-            RBB+8'h64: begin
-                // TDMA: status
-                ctrl_reg_rd_data_reg[0] <= tdma_locked;
-                ctrl_reg_rd_data_reg[1] <= tdma_error;
-            end
-            RBB+8'h74: ctrl_reg_rd_data_reg <= set_tdma_schedule_start_reg[29:0];    // TDMA: schedule start ns
-            RBB+8'h78: ctrl_reg_rd_data_reg <= set_tdma_schedule_start_reg[63:32];   // TDMA: schedule start sec l
-            RBB+8'h7C: ctrl_reg_rd_data_reg <= set_tdma_schedule_start_reg[79:64];   // TDMA: schedule start sec h
-            RBB+8'h84: ctrl_reg_rd_data_reg <= set_tdma_schedule_period_reg[29:0];   // TDMA: schedule period ns
-            RBB+8'h88: ctrl_reg_rd_data_reg <= set_tdma_schedule_period_reg[63:32];  // TDMA: schedule period sec l
-            RBB+8'h8C: ctrl_reg_rd_data_reg <= set_tdma_schedule_period_reg[79:64];  // TDMA: schedule period sec h
-            RBB+8'h94: ctrl_reg_rd_data_reg <= set_tdma_timeslot_period_reg[29:0];   // TDMA: timeslot period ns
-            RBB+8'h98: ctrl_reg_rd_data_reg <= set_tdma_timeslot_period_reg[63:32];  // TDMA: timeslot period sec l
-            RBB+8'h9C: ctrl_reg_rd_data_reg <= set_tdma_timeslot_period_reg[79:64];  // TDMA: timeslot period sec h
-            RBB+8'hA4: ctrl_reg_rd_data_reg <= set_tdma_active_period_reg[29:0];     // TDMA: active period ns
-            RBB+8'hA8: ctrl_reg_rd_data_reg <= set_tdma_active_period_reg[63:32];    // TDMA: active period sec l
-            RBB+8'hAC: ctrl_reg_rd_data_reg <= set_tdma_active_period_reg[79:64];    // TDMA: active period sec h
+            RBB+8'h64: ctrl_reg_rd_data_reg <= set_tdma_schedule_start_reg[29:0];    // TDMA: schedule start ns
+            RBB+8'h68: ctrl_reg_rd_data_reg <= set_tdma_schedule_start_reg[63:32];   // TDMA: schedule start sec l
+            RBB+8'h6C: ctrl_reg_rd_data_reg <= set_tdma_schedule_start_reg[79:64];   // TDMA: schedule start sec h
+            RBB+8'h74: ctrl_reg_rd_data_reg <= set_tdma_schedule_period_reg[29:0];   // TDMA: schedule period ns
+            RBB+8'h78: ctrl_reg_rd_data_reg <= set_tdma_timeslot_period_reg[29:0];   // TDMA: timeslot period ns
+            RBB+8'h7C: ctrl_reg_rd_data_reg <= set_tdma_active_period_reg[29:0];     // TDMA: active period ns
             default: ctrl_reg_rd_ack_reg <= 1'b0;
         endcase
     end
