@@ -440,6 +440,20 @@ static int mqnic_hwtstamp_get(struct net_device *ndev, struct ifreq *ifr)
 	return 0;
 }
 
+static int mqnic_set_mac(struct net_device *ndev, void *addr)
+{
+	struct sockaddr *saddr = addr;
+
+	if (!is_valid_ether_addr(saddr->sa_data))
+		return -EADDRNOTAVAIL;
+
+	netif_addr_lock_bh(ndev);
+	eth_hw_addr_set(ndev, saddr->sa_data);
+	netif_addr_unlock_bh(ndev);
+
+	return 0;
+}
+
 static int mqnic_change_mtu(struct net_device *ndev, int new_mtu)
 {
 	struct mqnic_priv *priv = netdev_priv(ndev);
@@ -492,6 +506,7 @@ static const struct net_device_ops mqnic_netdev_ops = {
 	.ndo_start_xmit = mqnic_start_xmit,
 	.ndo_get_stats64 = mqnic_get_stats64,
 	.ndo_validate_addr = eth_validate_addr,
+	.ndo_set_mac_address = mqnic_set_mac,
 	.ndo_change_mtu = mqnic_change_mtu,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 	.ndo_eth_ioctl = mqnic_ioctl,
