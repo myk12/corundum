@@ -217,6 +217,9 @@ int main(int argc, char *argv[])
 
     float rate[32];
 
+    // enable PRBS RX
+    mqnic_reg_write32(tdma_ber_rb->regs, 0x14, channel_mask);
+
     for (int i = 0; i < channel_count; i++)
     {
         uint32_t ns = mqnic_reg_read32(dev->phc_rb->regs, MQNIC_RB_PHC_REG_CUR_REL_NS_L);
@@ -228,8 +231,11 @@ int main(int argc, char *argv[])
         b = (mqnic_reg_read32(tdma_ber_rb->regs, 0x40 + i*16) - b) & 0xffffffff;
 
         rate[i] = (float)b * bits_per_update / ns;
-        printf("TDMA BER CH%d: %f Gbps\n", i, rate[i]);
+        printf("TDMA BER CH%d rate: %f Gbps\n", i, rate[i]);
     }
+
+    // disable PRBS RX
+    mqnic_reg_write32(tdma_ber_rb->regs, 0x14, 0);
 
     if (period_nsec > 0)
     {
@@ -313,21 +319,17 @@ int main(int argc, char *argv[])
         printf("Configure PRBS generation\n");
 
         uint32_t tx_val = mqnic_reg_read32(tdma_ber_rb->regs, 0x10);
-        uint32_t rx_val = mqnic_reg_read32(tdma_ber_rb->regs, 0x14);
 
         if (prbs_control)
         {
             tx_val |= channel_mask;
-            rx_val |= channel_mask;
         }
         else
         {
             tx_val &= ~channel_mask;
-            rx_val &= ~channel_mask;
         }
 
         mqnic_reg_write32(tdma_ber_rb->regs, 0x10, tx_val);
-        mqnic_reg_write32(tdma_ber_rb->regs, 0x14, rx_val);
     }
 
     if (slot_count > timeslot_count)
@@ -421,6 +423,9 @@ int main(int argc, char *argv[])
         printf("timeslot period %d ns\n", timeslot_period_nsec);
         printf("active period %d ns\n", active_period_nsec);
 
+        // enable PRBS RX
+        mqnic_reg_write32(tdma_ber_rb->regs, 0x14, channel_mask);
+
         // stop accumulation
         mqnic_reg_write32(tdma_ber_rb->regs, 0x0C, 0);
 
@@ -477,11 +482,17 @@ int main(int argc, char *argv[])
             slice_offset += slice_time*slice_batch;
         }
 
+        // disable PRBS RX
+        mqnic_reg_write32(tdma_ber_rb->regs, 0x14, 0);
+
         fclose(csv_file);
     }
     else if (interval > 0)
     {
         printf("TDMA BER counters\n");
+
+        // enable PRBS RX
+        mqnic_reg_write32(tdma_ber_rb->regs, 0x14, channel_mask);
 
         // stop accumulation
         mqnic_reg_write32(tdma_ber_rb->regs, 0x0C, 0);
@@ -499,6 +510,9 @@ int main(int argc, char *argv[])
 
         // stop accumulation
         mqnic_reg_write32(tdma_ber_rb->regs, 0x0C, 0);
+
+        // disable PRBS RX
+        mqnic_reg_write32(tdma_ber_rb->regs, 0x14, 0);
 
         printf("   ");
         for (int i = 0; i < channel_count; i++)
