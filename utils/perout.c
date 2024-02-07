@@ -13,6 +13,9 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <net/if.h>
+#include <linux/ethtool.h>
+#include <linux/sockios.h>
 #include <linux/ptp_clock.h>
 
 #include "timespec.h"
@@ -41,12 +44,48 @@ static void usage(char *name)
         name);
 }
 
+int phc_index_from_if(const char *name)
+{
+#ifdef ETHTOOL_GET_TS_INFO
+    struct ethtool_ts_info info;
+    struct ifreq ifr;
+    int fd, err;
+
+    memset(&ifr, 0, sizeof(ifr));
+    memset(&info, 0, sizeof(info));
+
+    info.cmd = ETHTOOL_GET_TS_INFO;
+    strncpy(ifr.ifr_name, name, IFNAMSIZ-1);
+    ifr.ifr_data = (char *)&info;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (fd < 0)
+    {
+        fprintf(stderr, "Failed to open socket: %s\n", strerror(errno));
+        return -1;
+    }
+
+    err = ioctl(fd, SIOCETHTOOL, &ifr);
+    close(fd);
+    if (err < 0)
+    {
+        fprintf(stderr, "ioctl SIOCETHTOOL failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    return info.phc_index;
+#endif
+    return -1;
+}
+
 int main(int argc, char *argv[])
 {
     char *name;
     int opt;
 
     char *device = NULL;
+    char dev_name[64];
     int ptp_fd;
     clockid_t clkid;
 
@@ -89,6 +128,17 @@ int main(int argc, char *argv[])
         fprintf(stderr, "PTP device not specified\n");
         usage(name);
         return -1;
+    }
+
+    if (access(device, F_OK) != 0 && !strchr(device, '/'))
+    {
+        // could have an interface name, try to get the PHC index
+        int phc_index = phc_index_from_if(device);
+        if (phc_index >= 0)
+        {
+            snprintf(dev_name, sizeof(dev_name), "/dev/ptp%d", phc_index);
+            device = dev_name;
+        }
     }
 
     ptp_fd = open(device, O_RDWR);
