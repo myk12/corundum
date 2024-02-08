@@ -733,7 +733,9 @@ async def run_test_nic(dut):
 
     await tb.driver.app_hw_regs.write_dword(0, 0x11223344)
 
-    print(await tb.driver.app_hw_regs.read_dword(0))
+    val = await tb.driver.app_hw_regs.read_dword(0)
+    tb.log.info("Read data: 0x%08x", val)
+    assert val == 0x11223344
 
     await RisingEdge(dut.clk)
     await RisingEdge(dut.clk)
