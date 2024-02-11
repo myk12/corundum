@@ -1,4 +1,4 @@
-# Copyright (c) 2021 Alex Forencich
+# Copyright (c) 2024 Alex Forencich
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,20 +26,18 @@ WAVES ?= 0
 COCOTB_HDL_TIMEUNIT = 1ns
 COCOTB_HDL_TIMEPRECISION = 1ps
 
-DUT      = axis_baser_rx_64
+DUT      = ptp_td_rel2tod
 TOPLEVEL = $(DUT)
 MODULE   = test_$(DUT)
 VERILOG_SOURCES += ../../rtl/$(DUT).v
-VERILOG_SOURCES += ../../rtl/lfsr.v
 
 # module parameters
-export PARAM_DATA_WIDTH := 64
-export PARAM_KEEP_WIDTH := $(shell expr $(PARAM_DATA_WIDTH) / 8 )
-export PARAM_HDR_WIDTH := 2
-export PARAM_PTP_TS_ENABLE := 1
-export PARAM_PTP_TS_FMT_TOD := 1
-export PARAM_PTP_TS_WIDTH := $(if $(filter-out 1,$(PARAM_PTP_TS_FMT_TOD)),64,96)
-export PARAM_USER_WIDTH := $(if $(filter-out 1,$(PARAM_PTP_TS_ENABLE)),1,$(shell expr $(PARAM_PTP_TS_WIDTH) + 1 ))
+export PARAM_TS_FNS_W := 16
+export PARAM_TS_REL_NS_W := 32
+export PARAM_TS_TOD_S_W := 48
+export PARAM_TS_REL_W := $(shell expr $(PARAM_TS_REL_NS_W) + $(PARAM_TS_FNS_W))
+export PARAM_TS_TOD_W := $(shell expr $(PARAM_TS_TOD_S_W) + 32 + $(PARAM_TS_FNS_W))
+export PARAM_TD_SDI_PIPELINE := 2
 
 ifeq ($(SIM), icarus)
 	PLUSARGS += -fst

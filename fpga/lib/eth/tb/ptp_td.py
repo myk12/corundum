@@ -127,7 +127,6 @@ class PtpTdSource(Reset):
 
     def set_ts_tod_ns(self, t):
         ts_s, ts_ns = self.ctx.divmod(Decimal(t), Decimal(1000000000))
-        ts_s = ts_s.scaleb(-9).to_integral_value()
         ts_ns, ts_fns = self.ctx.divmod(ts_ns, Decimal(1))
         ts_ns = ts_ns.to_integral_value()
         ts_fns = (ts_fns * Decimal(2**32)).to_integral_value()
@@ -256,12 +255,12 @@ class PtpTdSource(Reset):
             self.ts_tod_offset_ns = (self.ts_tod_ns - self.ts_rel_ns) & 0xffffffff
 
             # compute alternate offset
-            if self.ts_tod_ns & (1 << 29):
-                # latter half of second; compute offset for next second
+            if self.ts_tod_ns >> 27 == 7:
+                # latter portion of second; compute offset for next second
                 self.ts_tod_alt_s = self.ts_tod_s+1
                 self.ts_tod_alt_offset_ns = (self.ts_tod_offset_ns - 1000000000) & 0xffffffff
             else:
-                # former half of second; compute offset for previous second
+                # former portion of second; compute offset for previous second
                 self.ts_tod_alt_s = self.ts_tod_s-1
                 self.ts_tod_alt_offset_ns = (self.ts_tod_offset_ns + 1000000000) & 0xffffffff
 
