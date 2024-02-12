@@ -25,7 +25,6 @@ module mqnic_interface #
     // PTP configuration
     parameter PTP_CLK_PERIOD_NS_NUM = 4,
     parameter PTP_CLK_PERIOD_NS_DENOM = 1,
-    parameter PTP_TS_WIDTH = 96,
     parameter PTP_CLOCK_CDC_PIPELINE = 0,
     parameter PTP_PEROUT_ENABLE = 0,
     parameter PTP_PEROUT_COUNT = 1,
@@ -65,6 +64,8 @@ module mqnic_interface #
 
     // Interface configuration
     parameter PTP_TS_ENABLE = 1,
+    parameter PTP_TS_FMT_TOD = 1,
+    parameter PTP_TS_WIDTH = PTP_TS_FMT_TOD ? 96 : 64,
     parameter TX_CPL_ENABLE = PTP_TS_ENABLE,
     parameter TX_CPL_FIFO_DEPTH = 32,
     parameter TX_TAG_WIDTH = $clog2(TX_DESC_TABLE_SIZE)+1,
@@ -2524,9 +2525,6 @@ mqnic_interface_tx #(
     // Structural configuration
     .PORTS(PORTS),
 
-    // PTP configuration
-    .PTP_TS_WIDTH(PTP_TS_WIDTH),
-
     // Queue manager configuration
     .TX_QUEUE_INDEX_WIDTH(TX_QUEUE_INDEX_WIDTH),
     .QUEUE_INDEX_WIDTH(QUEUE_INDEX_WIDTH),
@@ -2552,6 +2550,8 @@ mqnic_interface_tx #(
 
     // Interface configuration
     .PTP_TS_ENABLE(PTP_TS_ENABLE),
+    .PTP_TS_FMT_TOD(PTP_TS_FMT_TOD),
+    .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .TX_TAG_WIDTH(TX_TAG_WIDTH),
     .TX_CHECKSUM_ENABLE(TX_CHECKSUM_ENABLE),
     .MAX_TX_SIZE(MAX_TX_SIZE),
@@ -2700,6 +2700,13 @@ interface_tx_inst (
     .s_axis_tx_cpl_ready(if_tx_cpl_ready),
 
     /*
+     * PTP clock
+     */
+    .ptp_clk(ptp_clk),
+    .ptp_rst(ptp_rst),
+    .ptp_td_sd(ptp_td_sd),
+
+    /*
      * Configuration
      */
     .mtu(tx_mtu_reg)
@@ -2721,9 +2728,6 @@ wire [AXIS_IF_RX_USER_WIDTH-1:0] if_rx_axis_tuser;
 mqnic_interface_rx #(
     // Structural configuration
     .PORTS(PORTS),
-
-    // PTP configuration
-    .PTP_TS_WIDTH(PTP_TS_WIDTH),
 
     // Queue manager configuration
     .RX_QUEUE_INDEX_WIDTH(RX_QUEUE_INDEX_WIDTH),
@@ -2750,6 +2754,8 @@ mqnic_interface_rx #(
 
     // Interface configuration
     .PTP_TS_ENABLE(PTP_TS_ENABLE),
+    .PTP_TS_FMT_TOD(PTP_TS_FMT_TOD),
+    .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .RX_HASH_ENABLE(RX_HASH_ENABLE),
     .RX_CHECKSUM_ENABLE(RX_CHECKSUM_ENABLE),
     .MAX_RX_SIZE(MAX_RX_SIZE),
@@ -2913,6 +2919,13 @@ interface_rx_inst (
     .s_axis_rx_tid(if_rx_axis_tid),
     .s_axis_rx_tdest(if_rx_axis_tdest),
     .s_axis_rx_tuser(if_rx_axis_tuser),
+
+    /*
+     * PTP clock
+     */
+    .ptp_clk(ptp_clk),
+    .ptp_rst(ptp_rst),
+    .ptp_td_sd(ptp_td_sd),
 
     /*
      * Configuration

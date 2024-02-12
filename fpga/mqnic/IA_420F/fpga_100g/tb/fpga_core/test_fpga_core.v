@@ -61,7 +61,6 @@ module test_fpga_core #
     // PTP configuration
     parameter PTP_CLK_PERIOD_NS_NUM = 2048,
     parameter PTP_CLK_PERIOD_NS_DENOM = 825,
-    parameter PTP_TS_WIDTH = 96,
     parameter PTP_CLOCK_PIPELINE = 0,
     parameter PTP_CLOCK_CDC_PIPELINE = 0,
     parameter PTP_SEPARATE_TX_CLOCK = 0,
@@ -96,6 +95,8 @@ module test_fpga_core #
 
     // Interface configuration
     parameter PTP_TS_ENABLE = 1,
+    parameter PTP_TS_FMT_TOD = 1,
+    parameter PTP_TS_WIDTH = PTP_TS_FMT_TOD ? 96 : 48,
     parameter TX_CPL_FIFO_DEPTH = 32,
     parameter TX_TAG_WIDTH = 8,
     parameter TX_CHECKSUM_ENABLE = 1,
@@ -437,7 +438,6 @@ fpga_core #(
     // PTP configuration
     .PTP_CLK_PERIOD_NS_NUM(PTP_CLK_PERIOD_NS_NUM),
     .PTP_CLK_PERIOD_NS_DENOM(PTP_CLK_PERIOD_NS_DENOM),
-    .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .PTP_CLOCK_PIPELINE(PTP_CLOCK_PIPELINE),
     .PTP_CLOCK_CDC_PIPELINE(PTP_CLOCK_CDC_PIPELINE),
     .PTP_SEPARATE_TX_CLOCK(PTP_SEPARATE_TX_CLOCK),
@@ -472,6 +472,8 @@ fpga_core #(
 
     // Interface configuration
     .PTP_TS_ENABLE(PTP_TS_ENABLE),
+    .PTP_TS_FMT_TOD(PTP_TS_FMT_TOD),
+    .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .TX_CPL_FIFO_DEPTH(TX_CPL_FIFO_DEPTH),
     .TX_TAG_WIDTH(TX_TAG_WIDTH),
     .TX_CHECKSUM_ENABLE(TX_CHECKSUM_ENABLE),

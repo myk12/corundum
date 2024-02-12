@@ -66,8 +66,10 @@ module rx_engine #
     parameter AXIS_DESC_KEEP_WIDTH = AXIS_DESC_DATA_WIDTH/8,
     // Enable PTP timestamping
     parameter PTP_TS_ENABLE = 1,
+    // PTP timestamp format
+    parameter PTP_TS_FMT_TOD = 1,
     // PTP timestamp width
-    parameter PTP_TS_WIDTH = 96,
+    parameter PTP_TS_WIDTH = PTP_TS_FMT_TOD ? 96 : 64,
     // Enable RX hashing
     parameter RX_HASH_ENABLE = 1,
     // Enable RX checksum offload
@@ -245,6 +247,13 @@ module rx_engine #
     output wire                             s_axis_rx_csum_ready,
 
     /*
+     * PTP clock
+     */
+    input  wire                             ptp_clk,
+    input  wire                             ptp_rst,
+    input  wire                             ptp_td_sd,
+
+    /*
      * Configuration
      */
     input  wire [DMA_CLIENT_LEN_WIDTH-1:0]  mtu,
@@ -361,7 +370,7 @@ reg [AXIS_RX_ID_WIDTH-1:0] desc_table_id[DESC_TABLE_SIZE-1:0];
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
 reg [CL_RX_BUFFER_SIZE+1-1:0] desc_table_buf_ptr[DESC_TABLE_SIZE-1:0];
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
-reg [PTP_TS_WIDTH-1:0] desc_table_ptp_ts[DESC_TABLE_SIZE-1:0];
+reg [95:0] desc_table_ptp_ts[DESC_TABLE_SIZE-1:0];
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
 reg [31:0] desc_table_hash[DESC_TABLE_SIZE-1:0];
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
@@ -382,10 +391,12 @@ reg desc_table_start_en;
 reg [CL_DESC_TABLE_SIZE-1:0] desc_table_rx_finish_ptr;
 reg [DMA_CLIENT_LEN_WIDTH-1:0] desc_table_rx_finish_len;
 reg [AXIS_RX_ID_WIDTH-1:0] desc_table_rx_finish_id;
-reg [PTP_TS_WIDTH-1:0] desc_table_rx_finish_ptp_ts;
 reg [31:0] desc_table_rx_finish_hash;
 reg [3:0] desc_table_rx_finish_hash_type;
 reg desc_table_rx_finish_en;
+reg [CL_DESC_TABLE_SIZE-1:0] desc_table_store_ts_ptr;
+reg [95:0] desc_table_store_ts_ptp_ts;
+reg desc_table_store_ts_en;
 reg [CL_DESC_TABLE_SIZE-1:0] desc_table_store_queue_ptr;
 reg [QUEUE_INDEX_WIDTH-1:0] desc_table_store_queue;
 reg desc_table_store_queue_en;
@@ -566,6 +577,55 @@ mqnic_rx_queue_map_inst (
     .resp_valid(queue_map_resp_valid)
 );
 
+wire [DMA_CLIENT_TAG_WIDTH-1:0] rx_ts_tag;
+wire [95:0] rx_ts_tod;
+wire rx_ts_valid;
+
+generate
+
+if (!PTP_TS_FMT_TOD) begin : rel2tod
+
+    ptp_td_rel2tod #(
+        .TS_FNS_W(16),
+        .TS_REL_NS_W(32),
+        .TS_TOD_S_W(48),
+        .TS_REL_W(48),
+        .TS_TOD_W(96),
+        .TS_TAG_W(DMA_CLIENT_TAG_WIDTH),
+        .TD_SDI_PIPELINE(2)
+    )
+    rel2tod_inst (
+        .clk(clk),
+        .rst(rst),
+
+        /*
+         * PTP clock interface
+         */
+        .ptp_clk(ptp_clk),
+        .ptp_rst(ptp_rst),
+        .ptp_td_sdi(ptp_td_sd),
+
+        /*
+         * Timestamp conversion
+         */
+        .input_ts_rel(s_axis_rx_desc_status_user >> TUSER_PTP_TS_OFFSET),
+        .input_ts_tag(s_axis_rx_desc_status_tag),
+        .input_ts_valid(s_axis_rx_desc_status_valid),
+        .output_ts_tod(rx_ts_tod),
+        .output_ts_tag(rx_ts_tag),
+        .output_ts_valid(rx_ts_valid)
+    );
+
+end else begin
+
+    assign rx_ts_tod = s_axis_rx_desc_status_user >> TUSER_PTP_TS_OFFSET;
+    assign rx_ts_tag = s_axis_rx_desc_status_tag;
+    assign rx_ts_valid = s_axis_rx_desc_status_valid;
+
+end
+
+endgenerate
+
 integer i;
 
 initial begin
@@ -632,10 +692,12 @@ always @* begin
     desc_table_rx_finish_ptr = s_axis_rx_desc_status_tag;
     desc_table_rx_finish_len = s_axis_rx_desc_status_len;
     desc_table_rx_finish_id = s_axis_rx_desc_status_id;
-    desc_table_rx_finish_ptp_ts = s_axis_rx_desc_status_user >> TUSER_PTP_TS_OFFSET;
     desc_table_rx_finish_hash = s_axis_rx_desc_status_user >> TUSER_HASH_OFFSET;
     desc_table_rx_finish_hash_type = s_axis_rx_desc_status_user >> TUSER_HASH_TYPE_OFFSET;
     desc_table_rx_finish_en = 1'b0;
+    desc_table_store_ts_ptr = rx_ts_tag;
+    desc_table_store_ts_ptp_ts = rx_ts_tod;
+    desc_table_store_ts_en = 1'b0;
     desc_table_store_queue_ptr = queue_map_resp_tag;
     desc_table_store_queue = queue_map_resp_queue;
     desc_table_store_queue_en = 1'b0;
@@ -707,10 +769,16 @@ always @* begin
         desc_table_rx_finish_ptr = s_axis_rx_desc_status_tag;
         desc_table_rx_finish_len = s_axis_rx_desc_status_len;
         desc_table_rx_finish_id = s_axis_rx_desc_status_id;
-        desc_table_rx_finish_ptp_ts = s_axis_rx_desc_status_user >> TUSER_PTP_TS_OFFSET;
         desc_table_rx_finish_hash = s_axis_rx_desc_status_user >> TUSER_HASH_OFFSET;
         desc_table_rx_finish_hash_type = s_axis_rx_desc_status_user >> TUSER_HASH_TYPE_OFFSET;
         desc_table_rx_finish_en = 1'b1;
+    end
+
+    // store PTP TS
+    if (rx_ts_valid) begin
+        desc_table_store_ts_ptr = rx_ts_tag;
+        desc_table_store_ts_ptp_ts = rx_ts_tod;
+        desc_table_store_ts_en = 1'b1;
     end
 
     // store queue
@@ -974,9 +1042,12 @@ always @(posedge clk) begin
     if (desc_table_rx_finish_en) begin
         desc_table_dma_len[desc_table_rx_finish_ptr & DESC_PTR_MASK] <= desc_table_rx_finish_len;
         desc_table_id[desc_table_rx_finish_ptr & DESC_PTR_MASK] <= desc_table_rx_finish_id;
-        desc_table_ptp_ts[desc_table_rx_finish_ptr & DESC_PTR_MASK] <= desc_table_rx_finish_ptp_ts;
         desc_table_hash[desc_table_rx_finish_ptr & DESC_PTR_MASK] <= desc_table_rx_finish_hash;
         desc_table_hash_type[desc_table_rx_finish_ptr & DESC_PTR_MASK] <= desc_table_rx_finish_hash_type;
+    end
+
+    if (desc_table_store_ts_en) begin
+        desc_table_ptp_ts[desc_table_store_ts_ptr & DESC_PTR_MASK] <= desc_table_store_ts_ptp_ts;
     end
 
     if (desc_table_store_queue_en) begin

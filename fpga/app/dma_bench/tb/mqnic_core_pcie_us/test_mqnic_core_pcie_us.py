@@ -950,18 +950,19 @@ pcie_rtl_dir = os.path.abspath(os.path.join(lib_dir, 'pcie', 'rtl'))
 
 
 @pytest.mark.parametrize(("if_count", "ports_per_if", "axis_pcie_data_width",
-        "axis_eth_data_width", "axis_eth_sync_data_width", "ptp_ts_enable"), [
-            (1, 1, 256, 64, 64, 1),
-            (1, 1, 256, 64, 64, 0),
-            (2, 1, 256, 64, 64, 1),
-            (1, 2, 256, 64, 64, 1),
-            (1, 1, 256, 64, 128, 1),
-            (1, 1, 512, 64, 64, 1),
-            (1, 1, 512, 64, 128, 1),
-            (1, 1, 512, 512, 512, 1),
+        "axis_eth_data_width", "axis_eth_sync_data_width", "ptp_ts_enable", "ptp_ts_fmt_tod"), [
+            (1, 1, 256, 64, 64, 1, 0),
+            (1, 1, 256, 64, 64, 1, 1),
+            (1, 1, 256, 64, 64, 0, 0),
+            (2, 1, 256, 64, 64, 1, 0),
+            (1, 2, 256, 64, 64, 1, 0),
+            (1, 1, 256, 64, 128, 1, 0),
+            (1, 1, 512, 64, 64, 1, 0),
+            (1, 1, 512, 64, 128, 1, 0),
+            (1, 1, 512, 512, 512, 1, 0),
         ])
 def test_mqnic_core_pcie_us(request, if_count, ports_per_if, axis_pcie_data_width,
-        axis_eth_data_width, axis_eth_sync_data_width, ptp_ts_enable):
+        axis_eth_data_width, axis_eth_sync_data_width, ptp_ts_enable, ptp_ts_fmt_tod):
     dut = "mqnic_core_pcie_us"
     module = os.path.splitext(os.path.basename(__file__))[0]
     toplevel = dut
@@ -1017,6 +1018,7 @@ def test_mqnic_core_pcie_us(request, if_count, ports_per_if, axis_pcie_data_widt
         os.path.join(eth_rtl_dir, "mac_pause_ctrl_tx.v"),
         os.path.join(eth_rtl_dir, "ptp_td_phc.v"),
         os.path.join(eth_rtl_dir, "ptp_td_leaf.v"),
+        os.path.join(eth_rtl_dir, "ptp_td_rel2tod.v"),
         os.path.join(eth_rtl_dir, "ptp_perout.v"),
         os.path.join(eth_rtl_dir, "lfsr.v"),
         os.path.join(axi_rtl_dir, "axi_vfifo_raw.v"),
@@ -1119,6 +1121,8 @@ def test_mqnic_core_pcie_us(request, if_count, ports_per_if, axis_pcie_data_widt
 
     # Interface configuration
     parameters['PTP_TS_ENABLE'] = ptp_ts_enable
+    parameters['PTP_TS_FMT_TOD'] = ptp_ts_fmt_tod
+    parameters['PTP_TS_WIDTH'] = 96 if parameters['PTP_TS_FMT_TOD'] else 48
     parameters['TX_CPL_ENABLE'] = parameters['PTP_TS_ENABLE']
     parameters['TX_CPL_FIFO_DEPTH'] = 32
     parameters['TX_TAG_WIDTH'] = 16

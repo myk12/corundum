@@ -59,6 +59,7 @@ VERILOG_SOURCES += ../../rtl/common/tx_scheduler_rr.v
 VERILOG_SOURCES += ../../rtl/common/i2c_single_reg.v
 VERILOG_SOURCES += ../../lib/eth/rtl/ptp_td_phc.v
 VERILOG_SOURCES += ../../lib/eth/rtl/ptp_td_leaf.v
+VERILOG_SOURCES += ../../lib/eth/rtl/ptp_td_rel2tod.v
 VERILOG_SOURCES += ../../lib/eth/rtl/ptp_perout.v
 VERILOG_SOURCES += ../../lib/axi/rtl/axil_interconnect.v
 VERILOG_SOURCES += ../../lib/axi/rtl/axil_crossbar.v

@@ -17,9 +17,6 @@ module mqnic_interface_rx #
     // Structural configuration
     parameter PORTS = 1,
 
-    // PTP configuration
-    parameter PTP_TS_WIDTH = 96,
-
     // Queue manager configuration (interface)
     parameter RX_QUEUE_INDEX_WIDTH = 8,
     parameter QUEUE_INDEX_WIDTH = RX_QUEUE_INDEX_WIDTH,
@@ -45,6 +42,8 @@ module mqnic_interface_rx #
 
     // Interface configuration
     parameter PTP_TS_ENABLE = 1,
+    parameter PTP_TS_FMT_TOD = 1,
+    parameter PTP_TS_WIDTH = PTP_TS_FMT_TOD ? 96 : 64,
     parameter RX_HASH_ENABLE = 1,
     parameter RX_CHECKSUM_ENABLE = 1,
     parameter MAX_RX_SIZE = 9214,
@@ -210,6 +209,13 @@ module mqnic_interface_rx #
     input  wire [AXIS_RX_USER_WIDTH-1:0]                s_axis_rx_tuser,
 
     /*
+     * PTP clock
+     */
+    input  wire                                         ptp_clk,
+    input  wire                                         ptp_rst,
+    input  wire                                         ptp_td_sd,
+
+    /*
      * Configuration
      */
     input  wire [DMA_CLIENT_LEN_WIDTH-1:0]              mtu
@@ -354,6 +360,7 @@ rx_engine #(
     .AXIS_DESC_DATA_WIDTH(AXIS_DESC_DATA_WIDTH),
     .AXIS_DESC_KEEP_WIDTH(AXIS_DESC_KEEP_WIDTH),
     .PTP_TS_ENABLE(PTP_TS_ENABLE),
+    .PTP_TS_FMT_TOD(PTP_TS_FMT_TOD),
     .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .RX_HASH_ENABLE(RX_HASH_ENABLE),
     .RX_CHECKSUM_ENABLE(RX_CHECKSUM_ENABLE),
@@ -516,6 +523,13 @@ rx_engine_inst (
     .s_axis_rx_csum(rx_csum),
     .s_axis_rx_csum_valid(rx_csum_valid),
     .s_axis_rx_csum_ready(rx_csum_ready),
+
+    /*
+     * PTP clock
+     */
+    .ptp_clk(ptp_clk),
+    .ptp_rst(ptp_rst),
+    .ptp_td_sd(ptp_td_sd),
 
     /*
      * Configuration

@@ -37,7 +37,6 @@ module fpga_core #
     // PTP configuration
     parameter PTP_CLK_PERIOD_NS_NUM = 1024,
     parameter PTP_CLK_PERIOD_NS_DENOM = 165,
-    parameter PTP_TS_WIDTH = 96,
     parameter PTP_CLOCK_PIPELINE = 0,
     parameter PTP_CLOCK_CDC_PIPELINE = 0,
     parameter PTP_PORT_CDC_PIPELINE = 0,
@@ -70,6 +69,8 @@ module fpga_core #
 
     // Interface configuration
     parameter PTP_TS_ENABLE = 1,
+    parameter PTP_TS_FMT_TOD = 0,
+    parameter PTP_TS_WIDTH = PTP_TS_FMT_TOD ? 96 : 48,
     parameter TX_CPL_FIFO_DEPTH = 32,
     parameter TX_TAG_WIDTH = 16,
     parameter TX_CHECKSUM_ENABLE = 1,
@@ -1125,8 +1126,8 @@ wire [PORT_COUNT-1:0]                         eth_tx_rst;
 
 wire [PORT_COUNT-1:0]                         eth_tx_ptp_clk;
 wire [PORT_COUNT-1:0]                         eth_tx_ptp_rst;
-wire [PORT_COUNT*PTP_TS_WIDTH-1:0]            eth_tx_ptp_ts_tod;
-wire [PORT_COUNT-1:0]                         eth_tx_ptp_ts_tod_step;
+wire [PORT_COUNT*PTP_TS_WIDTH-1:0]            eth_tx_ptp_ts;
+wire [PORT_COUNT-1:0]                         eth_tx_ptp_ts_step;
 
 wire [PORT_COUNT*AXIS_ETH_DATA_WIDTH-1:0]     axis_eth_tx_tdata;
 wire [PORT_COUNT*AXIS_ETH_KEEP_WIDTH-1:0]     axis_eth_tx_tkeep;
@@ -1152,8 +1153,8 @@ wire [PORT_COUNT-1:0]                         eth_rx_rst;
 
 wire [PORT_COUNT-1:0]                         eth_rx_ptp_clk;
 wire [PORT_COUNT-1:0]                         eth_rx_ptp_rst;
-wire [PORT_COUNT*PTP_TS_WIDTH-1:0]            eth_rx_ptp_ts_tod;
-wire [PORT_COUNT-1:0]                         eth_rx_ptp_ts_tod_step;
+wire [PORT_COUNT*PTP_TS_WIDTH-1:0]            eth_rx_ptp_ts;
+wire [PORT_COUNT-1:0]                         eth_rx_ptp_ts_step;
 
 wire [PORT_COUNT*AXIS_ETH_DATA_WIDTH-1:0]     axis_eth_rx_tdata;
 wire [PORT_COUNT*AXIS_ETH_KEEP_WIDTH-1:0]     axis_eth_rx_tkeep;
@@ -1171,23 +1172,14 @@ wire [PORT_COUNT*8-1:0]                       eth_rx_pfc_en;
 wire [PORT_COUNT*8-1:0]                       eth_rx_pfc_req;
 wire [PORT_COUNT*8-1:0]                       eth_rx_pfc_ack;
 
-wire [PTP_TS_WIDTH-1:0] qsfp_0_tx_ptp_time_int;
-wire [PTP_TS_WIDTH-1:0] qsfp_1_tx_ptp_time_int;
-wire [PTP_TS_WIDTH-1:0] qsfp_2_tx_ptp_time_int;
-wire [PTP_TS_WIDTH-1:0] qsfp_3_tx_ptp_time_int;
-wire [PTP_TS_WIDTH-1:0] qsfp_0_rx_ptp_time_int;
-wire [PTP_TS_WIDTH-1:0] qsfp_1_rx_ptp_time_int;
-wire [PTP_TS_WIDTH-1:0] qsfp_2_rx_ptp_time_int;
-wire [PTP_TS_WIDTH-1:0] qsfp_3_rx_ptp_time_int;
-
-assign qsfp_0_tx_ptp_time = qsfp_0_tx_ptp_time_int >> 16;
-assign qsfp_1_tx_ptp_time = qsfp_1_tx_ptp_time_int >> 16;
-assign qsfp_2_tx_ptp_time = qsfp_2_tx_ptp_time_int >> 16;
-assign qsfp_3_tx_ptp_time = qsfp_3_tx_ptp_time_int >> 16;
-assign qsfp_0_rx_ptp_time = qsfp_0_rx_ptp_time_int >> 16;
-assign qsfp_1_rx_ptp_time = qsfp_1_rx_ptp_time_int >> 16;
-assign qsfp_2_rx_ptp_time = qsfp_2_rx_ptp_time_int >> 16;
-assign qsfp_3_rx_ptp_time = qsfp_3_rx_ptp_time_int >> 16;
+assign qsfp_0_tx_ptp_time[79:48] = 0;
+assign qsfp_1_tx_ptp_time[79:48] = 0;
+assign qsfp_2_tx_ptp_time[79:48] = 0;
+assign qsfp_3_tx_ptp_time[79:48] = 0;
+assign qsfp_0_rx_ptp_time[79:48] = 0;
+assign qsfp_1_rx_ptp_time[79:48] = 0;
+assign qsfp_2_rx_ptp_time[79:48] = 0;
+assign qsfp_3_rx_ptp_time[79:48] = 0;
 
 mqnic_port_map_mac_axis #(
     .MAC_COUNT(4),
@@ -1213,7 +1205,7 @@ mqnic_port_map_mac_axis_inst (
 
     .mac_tx_ptp_clk(4'b0000),
     .mac_tx_ptp_rst(4'b0000),
-    .mac_tx_ptp_ts_96({qsfp_3_tx_ptp_time_int, qsfp_2_tx_ptp_time_int, qsfp_1_tx_ptp_time_int, qsfp_0_tx_ptp_time_int}),
+    .mac_tx_ptp_ts_96({qsfp_3_tx_ptp_time[47:0], qsfp_2_tx_ptp_time[47:0], qsfp_1_tx_ptp_time[47:0], qsfp_0_tx_ptp_time[47:0]}),
     .mac_tx_ptp_ts_step(),
 
     .m_axis_mac_tx_tdata({qsfp_3_tx_axis_tdata, qsfp_2_tx_axis_tdata, qsfp_1_tx_axis_tdata, qsfp_0_tx_axis_tdata}),
@@ -1223,7 +1215,7 @@ mqnic_port_map_mac_axis_inst (
     .m_axis_mac_tx_tlast({qsfp_3_tx_axis_tlast, qsfp_2_tx_axis_tlast, qsfp_1_tx_axis_tlast, qsfp_0_tx_axis_tlast}),
     .m_axis_mac_tx_tuser({qsfp_3_tx_axis_tuser, qsfp_2_tx_axis_tuser, qsfp_1_tx_axis_tuser, qsfp_0_tx_axis_tuser}),
 
-    .s_axis_mac_tx_ptp_ts({{qsfp_3_tx_ptp_ts, 16'd0}, {qsfp_2_tx_ptp_ts, 16'd0}, {qsfp_1_tx_ptp_ts, 16'd0}, {qsfp_0_tx_ptp_ts, 16'd0}}),
+    .s_axis_mac_tx_ptp_ts({qsfp_3_tx_ptp_ts[47:0], qsfp_2_tx_ptp_ts[47:0], qsfp_1_tx_ptp_ts[47:0], qsfp_0_tx_ptp_ts[47:0]}),
     .s_axis_mac_tx_ptp_ts_tag({qsfp_3_tx_ptp_ts_tag, qsfp_2_tx_ptp_ts_tag, qsfp_1_tx_ptp_ts_tag, qsfp_0_tx_ptp_ts_tag}),
     .s_axis_mac_tx_ptp_ts_valid({qsfp_3_tx_ptp_ts_valid, qsfp_2_tx_ptp_ts_valid, qsfp_1_tx_ptp_ts_valid, qsfp_0_tx_ptp_ts_valid}),
     .s_axis_mac_tx_ptp_ts_ready(),
@@ -1240,7 +1232,7 @@ mqnic_port_map_mac_axis_inst (
 
     .mac_rx_ptp_clk(4'b0000),
     .mac_rx_ptp_rst(4'b0000),
-    .mac_rx_ptp_ts_96({qsfp_3_rx_ptp_time_int, qsfp_2_rx_ptp_time_int, qsfp_1_rx_ptp_time_int, qsfp_0_rx_ptp_time_int}),
+    .mac_rx_ptp_ts_96({qsfp_3_rx_ptp_time[47:0], qsfp_2_rx_ptp_time[47:0], qsfp_1_rx_ptp_time[47:0], qsfp_0_rx_ptp_time[47:0]}),
     .mac_rx_ptp_ts_step(),
 
     .s_axis_mac_rx_tdata({qsfp_3_rx_axis_tdata, qsfp_2_rx_axis_tdata, qsfp_1_rx_axis_tdata, qsfp_0_rx_axis_tdata}),
@@ -1248,7 +1240,7 @@ mqnic_port_map_mac_axis_inst (
     .s_axis_mac_rx_tvalid({qsfp_3_rx_axis_tvalid, qsfp_2_rx_axis_tvalid, qsfp_1_rx_axis_tvalid, qsfp_0_rx_axis_tvalid}),
     .s_axis_mac_rx_tready(),
     .s_axis_mac_rx_tlast({qsfp_3_rx_axis_tlast, qsfp_2_rx_axis_tlast, qsfp_1_rx_axis_tlast, qsfp_0_rx_axis_tlast}),
-    .s_axis_mac_rx_tuser({{qsfp_3_rx_axis_tuser[80:1], 16'd0, qsfp_3_rx_axis_tuser[0]}, {qsfp_2_rx_axis_tuser[80:1], 16'd0, qsfp_2_rx_axis_tuser[0]}, {qsfp_1_rx_axis_tuser[80:1], 16'd0, qsfp_1_rx_axis_tuser[0]}, {qsfp_0_rx_axis_tuser[80:1], 16'd0, qsfp_0_rx_axis_tuser[0]}}),
+    .s_axis_mac_rx_tuser({qsfp_3_rx_axis_tuser[48:0], qsfp_2_rx_axis_tuser[48:0], qsfp_1_rx_axis_tuser[48:0], qsfp_0_rx_axis_tuser[48:0]}),
 
     .mac_rx_enable({qsfp_3_rx_enable, qsfp_2_rx_enable, qsfp_1_rx_enable, qsfp_0_rx_enable}),
     .mac_rx_status({qsfp_3_rx_status, qsfp_2_rx_status, qsfp_1_rx_status, qsfp_0_rx_status}),
@@ -1265,8 +1257,8 @@ mqnic_port_map_mac_axis_inst (
 
     .tx_ptp_clk(eth_tx_ptp_clk),
     .tx_ptp_rst(eth_tx_ptp_rst),
-    .tx_ptp_ts_96(eth_tx_ptp_ts_tod),
-    .tx_ptp_ts_step(eth_tx_ptp_ts_tod_step),
+    .tx_ptp_ts_96(eth_tx_ptp_ts),
+    .tx_ptp_ts_step(eth_tx_ptp_ts_step),
 
     .s_axis_tx_tdata(axis_eth_tx_tdata),
     .s_axis_tx_tkeep(axis_eth_tx_tkeep),
@@ -1292,8 +1284,8 @@ mqnic_port_map_mac_axis_inst (
 
     .rx_ptp_clk(eth_rx_ptp_clk),
     .rx_ptp_rst(eth_rx_ptp_rst),
-    .rx_ptp_ts_96(eth_rx_ptp_ts_tod),
-    .rx_ptp_ts_step(eth_rx_ptp_ts_tod_step),
+    .rx_ptp_ts_96(eth_rx_ptp_ts),
+    .rx_ptp_ts_step(eth_rx_ptp_ts_step),
 
     .m_axis_rx_tdata(axis_eth_rx_tdata),
     .m_axis_rx_tkeep(axis_eth_rx_tkeep),
@@ -1337,7 +1329,6 @@ mqnic_core_pcie_us #(
     // PTP configuration
     .PTP_CLK_PERIOD_NS_NUM(PTP_CLK_PERIOD_NS_NUM),
     .PTP_CLK_PERIOD_NS_DENOM(PTP_CLK_PERIOD_NS_DENOM),
-    .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .PTP_CLOCK_PIPELINE(PTP_CLOCK_PIPELINE),
     .PTP_CLOCK_CDC_PIPELINE(PTP_CLOCK_CDC_PIPELINE),
     .PTP_SEPARATE_TX_CLOCK(0),
@@ -1372,6 +1363,8 @@ mqnic_core_pcie_us #(
 
     // Interface configuration
     .PTP_TS_ENABLE(PTP_TS_ENABLE),
+    .PTP_TS_FMT_TOD(PTP_TS_FMT_TOD),
+    .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .TX_CPL_ENABLE(PTP_TS_ENABLE),
     .TX_CPL_FIFO_DEPTH(TX_CPL_FIFO_DEPTH),
     .TX_TAG_WIDTH(TX_TAG_WIDTH),
@@ -1650,8 +1643,8 @@ core_inst (
 
     .eth_tx_ptp_clk(eth_tx_ptp_clk),
     .eth_tx_ptp_rst(eth_tx_ptp_rst),
-    .eth_tx_ptp_ts_tod(eth_tx_ptp_ts_tod),
-    .eth_tx_ptp_ts_tod_step(eth_tx_ptp_ts_tod_step),
+    .eth_tx_ptp_ts(eth_tx_ptp_ts),
+    .eth_tx_ptp_ts_step(eth_tx_ptp_ts_step),
 
     .m_axis_eth_tx_tdata(axis_eth_tx_tdata),
     .m_axis_eth_tx_tkeep(axis_eth_tx_tkeep),
@@ -1678,8 +1671,8 @@ core_inst (
 
     .eth_rx_ptp_clk(eth_rx_ptp_clk),
     .eth_rx_ptp_rst(eth_rx_ptp_rst),
-    .eth_rx_ptp_ts_tod(eth_rx_ptp_ts_tod),
-    .eth_rx_ptp_ts_tod_step(eth_rx_ptp_ts_tod_step),
+    .eth_rx_ptp_ts(eth_rx_ptp_ts),
+    .eth_rx_ptp_ts_step(eth_rx_ptp_ts_step),
 
     .s_axis_eth_rx_tdata(axis_eth_rx_tdata),
     .s_axis_eth_rx_tkeep(axis_eth_rx_tkeep),

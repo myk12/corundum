@@ -63,6 +63,7 @@ VERILOG_SOURCES += ../../lib/eth/rtl/mac_pause_ctrl_tx.v
 VERILOG_SOURCES += ../../lib/eth/rtl/ptp_td_phc.v
 VERILOG_SOURCES += ../../lib/eth/rtl/ptp_td_leaf.v
 VERILOG_SOURCES += ../../lib/eth/rtl/ptp_perout.v
+VERILOG_SOURCES += ../../lib/eth/rtl/ptp_td_rel2tod.v
 VERILOG_SOURCES += ../../lib/eth/rtl/lfsr.v
 VERILOG_SOURCES += ../../lib/axi/rtl/axi_vfifo_raw.v
 VERILOG_SOURCES += ../../lib/axi/rtl/axi_vfifo_raw_rd.v
@@ -164,6 +165,8 @@ export PARAM_TDMA_INDEX_WIDTH := 6
 
 # Interface configuration
 export PARAM_PTP_TS_ENABLE := 1
+export PARAM_PTP_TS_FMT_TOD := 0
+export PARAM_PTP_TS_WIDTH := $(if $(filter-out 1,$(PARAM_PTP_TS_FMT_TOD)),48,96)
 export PARAM_TX_CPL_ENABLE := $(PARAM_PTP_TS_ENABLE)
 export PARAM_TX_CPL_FIFO_DEPTH := 32
 export PARAM_TX_TAG_WIDTH := 16

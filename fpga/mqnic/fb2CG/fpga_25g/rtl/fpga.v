@@ -301,11 +301,12 @@ module fpga #
 // PTP configuration
 parameter PTP_CLK_PERIOD_NS_NUM = 1024;
 parameter PTP_CLK_PERIOD_NS_DENOM = 165;
-parameter PTP_TS_WIDTH = 96;
 parameter IF_PTP_PERIOD_NS = 6'h2;
 parameter IF_PTP_PERIOD_FNS = 16'h8F5C;
 
 // Interface configuration
+parameter PTP_TS_FMT_TOD = 0;
+parameter PTP_TS_WIDTH = PTP_TS_FMT_TOD ? 96 : 48;
 parameter TX_TAG_WIDTH = 16;
 
 // RAM configuration
@@ -2056,7 +2057,6 @@ fpga_core #(
     // PTP configuration
     .PTP_CLK_PERIOD_NS_NUM(PTP_CLK_PERIOD_NS_NUM),
     .PTP_CLK_PERIOD_NS_DENOM(PTP_CLK_PERIOD_NS_DENOM),
-    .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .PTP_CLOCK_PIPELINE(PTP_CLOCK_PIPELINE),
     .PTP_CLOCK_CDC_PIPELINE(PTP_CLOCK_CDC_PIPELINE),
     .PTP_PORT_CDC_PIPELINE(PTP_PORT_CDC_PIPELINE),
@@ -2091,6 +2091,8 @@ fpga_core #(
 
     // Interface configuration
     .PTP_TS_ENABLE(PTP_TS_ENABLE),
+    .PTP_TS_FMT_TOD(PTP_TS_FMT_TOD),
+    .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .TX_CPL_FIFO_DEPTH(TX_CPL_FIFO_DEPTH),
     .TX_TAG_WIDTH(TX_TAG_WIDTH),
     .TX_CHECKSUM_ENABLE(TX_CHECKSUM_ENABLE),

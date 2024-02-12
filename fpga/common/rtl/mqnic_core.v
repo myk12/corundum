@@ -46,7 +46,6 @@ module mqnic_core #
     // PTP configuration
     parameter PTP_CLK_PERIOD_NS_NUM = 4,
     parameter PTP_CLK_PERIOD_NS_DENOM = 1,
-    parameter PTP_TS_WIDTH = 96,
     parameter PTP_CLOCK_PIPELINE = 0,
     parameter PTP_CLOCK_CDC_PIPELINE = 0,
     parameter PTP_SEPARATE_TX_CLOCK = 0,
@@ -81,6 +80,8 @@ module mqnic_core #
 
     // Interface configuration
     parameter PTP_TS_ENABLE = 1,
+    parameter PTP_TS_FMT_TOD = 1,
+    parameter PTP_TS_WIDTH = PTP_TS_FMT_TOD ? 96 : 64,
     parameter TX_CPL_ENABLE = PTP_TS_ENABLE,
     parameter TX_CPL_FIFO_DEPTH = 32,
     parameter TX_TAG_WIDTH = $clog2(TX_DESC_TABLE_SIZE)+1,
@@ -413,8 +414,8 @@ module mqnic_core #
 
     input  wire [PORT_COUNT-1:0]                        tx_ptp_clk,
     input  wire [PORT_COUNT-1:0]                        tx_ptp_rst,
-    output wire [PORT_COUNT*PTP_TS_WIDTH-1:0]           tx_ptp_ts_tod,
-    output wire [PORT_COUNT-1:0]                        tx_ptp_ts_tod_step,
+    output wire [PORT_COUNT*PTP_TS_WIDTH-1:0]           tx_ptp_ts,
+    output wire [PORT_COUNT-1:0]                        tx_ptp_ts_step,
 
     output wire [PORT_COUNT*AXIS_DATA_WIDTH-1:0]        m_axis_tx_tdata,
     output wire [PORT_COUNT*AXIS_KEEP_WIDTH-1:0]        m_axis_tx_tkeep,
@@ -441,8 +442,8 @@ module mqnic_core #
 
     input  wire [PORT_COUNT-1:0]                        rx_ptp_clk,
     input  wire [PORT_COUNT-1:0]                        rx_ptp_rst,
-    output wire [PORT_COUNT*PTP_TS_WIDTH-1:0]           rx_ptp_ts_tod,
-    output wire [PORT_COUNT-1:0]                        rx_ptp_ts_tod_step,
+    output wire [PORT_COUNT*PTP_TS_WIDTH-1:0]           rx_ptp_ts,
+    output wire [PORT_COUNT-1:0]                        rx_ptp_ts_step,
 
     input  wire [PORT_COUNT*AXIS_DATA_WIDTH-1:0]        s_axis_rx_tdata,
     input  wire [PORT_COUNT*AXIS_KEEP_WIDTH-1:0]        s_axis_rx_tkeep,
@@ -3063,7 +3064,6 @@ generate
             // PTP configuration
             .PTP_CLK_PERIOD_NS_NUM(PTP_CLK_PERIOD_NS_NUM),
             .PTP_CLK_PERIOD_NS_DENOM(PTP_CLK_PERIOD_NS_DENOM),
-            .PTP_TS_WIDTH(PTP_TS_WIDTH),
             .PTP_CLOCK_CDC_PIPELINE(PTP_CLOCK_CDC_PIPELINE),
             .PTP_PEROUT_ENABLE(PTP_PEROUT_ENABLE),
             .PTP_PEROUT_COUNT(PTP_PEROUT_COUNT),
@@ -3103,6 +3103,8 @@ generate
 
             // Interface configuration
             .PTP_TS_ENABLE(PTP_TS_ENABLE),
+            .PTP_TS_FMT_TOD(PTP_TS_FMT_TOD),
+            .PTP_TS_WIDTH(PTP_TS_WIDTH),
             .TX_CPL_ENABLE(TX_CPL_ENABLE),
             .TX_CPL_FIFO_DEPTH(TX_CPL_FIFO_DEPTH),
             .TX_TAG_WIDTH(TX_TAG_WIDTH),
@@ -3575,20 +3577,24 @@ generate
 
             wire [95:0] port_rx_ptp_ts_tod;
             wire port_rx_ptp_ts_tod_step;
+            wire [PTP_TS_WIDTH-1:0] port_rx_ptp_ts_rel;
+            wire port_rx_ptp_ts_rel_step;
 
             wire [95:0] port_tx_ptp_ts_tod;
             wire port_tx_ptp_ts_tod_step;
+            wire [PTP_TS_WIDTH-1:0] port_tx_ptp_ts_rel;
+            wire port_tx_ptp_ts_rel_step;
 
             if (PTP_TS_ENABLE) begin: ptp
 
                 // PTP CDC logic
                 ptp_td_leaf #(
-                    .TS_REL_EN(0),
-                    .TS_TOD_EN(1),
+                    .TS_REL_EN(!PTP_TS_FMT_TOD),
+                    .TS_TOD_EN(PTP_TS_FMT_TOD),
                     .TS_FNS_W(16),
-                    .TS_REL_NS_W(48),
+                    .TS_REL_NS_W(PTP_TS_WIDTH-16),
                     .TS_TOD_S_W(48),
-                    .TS_REL_W(64),
+                    .TS_REL_W(PTP_TS_WIDTH),
                     .TS_TOD_W(96),
                     .TD_SDI_PIPELINE(PTP_PORT_CDC_PIPELINE)
                 )
@@ -3607,8 +3613,8 @@ generate
                     /*
                      * Timestamp output
                      */
-                    .output_ts_rel(),
-                    .output_ts_rel_step(),
+                    .output_ts_rel(port_tx_ptp_ts_rel),
+                    .output_ts_rel_step(port_tx_ptp_ts_rel_step),
                     .output_ts_tod(port_tx_ptp_ts_tod),
                     .output_ts_tod_step(port_tx_ptp_ts_tod_step),
 
@@ -3625,12 +3631,12 @@ generate
                 );
 
                 ptp_td_leaf #(
-                    .TS_REL_EN(0),
-                    .TS_TOD_EN(1),
+                    .TS_REL_EN(!PTP_TS_FMT_TOD),
+                    .TS_TOD_EN(PTP_TS_FMT_TOD),
                     .TS_FNS_W(16),
-                    .TS_REL_NS_W(48),
+                    .TS_REL_NS_W(PTP_TS_WIDTH-16),
                     .TS_TOD_S_W(48),
-                    .TS_REL_W(64),
+                    .TS_REL_W(PTP_TS_WIDTH),
                     .TS_TOD_W(96),
                     .TD_SDI_PIPELINE(PTP_PORT_CDC_PIPELINE)
                 )
@@ -3649,8 +3655,8 @@ generate
                     /*
                      * Timestamp output
                      */
-                    .output_ts_rel(),
-                    .output_ts_rel_step(),
+                    .output_ts_rel(port_rx_ptp_ts_rel),
+                    .output_ts_rel_step(port_rx_ptp_ts_rel_step),
                     .output_ts_tod(port_rx_ptp_ts_tod),
                     .output_ts_tod_step(port_rx_ptp_ts_tod_step),
 
@@ -3670,17 +3676,20 @@ generate
 
                 assign port_tx_ptp_ts_tod = 0;
                 assign port_tx_ptp_ts_tod_step = 1'b0;
+                assign port_tx_ptp_ts_rel = 0;
+                assign port_tx_ptp_ts_rel_step = 1'b0;
 
                 assign port_rx_ptp_ts_tod = 0;
                 assign port_rx_ptp_ts_tod_step = 1'b0;
+                assign port_rx_ptp_ts_rel = 0;
+                assign port_rx_ptp_ts_rel_step = 1'b0;
 
             end
 
-            assign tx_ptp_ts_tod[(n*PORTS_PER_IF+m)*96 +: 96] = port_tx_ptp_ts_tod;
-            assign tx_ptp_ts_tod_step[n*PORTS_PER_IF+m] = port_tx_ptp_ts_tod_step;
-
-            assign rx_ptp_ts_tod[(n*PORTS_PER_IF+m)*96 +: 96] = port_rx_ptp_ts_tod;
-            assign rx_ptp_ts_tod_step[n*PORTS_PER_IF+m] = port_rx_ptp_ts_tod_step;
+            assign tx_ptp_ts[(n*PORTS_PER_IF+m)*PTP_TS_WIDTH +: PTP_TS_WIDTH] = PTP_TS_FMT_TOD ? port_tx_ptp_ts_tod : port_tx_ptp_ts_rel;
+            assign tx_ptp_ts_step[n*PORTS_PER_IF+m +: 1] = PTP_TS_FMT_TOD ? port_tx_ptp_ts_tod_step : port_tx_ptp_ts_rel_step;
+            assign rx_ptp_ts[(n*PORTS_PER_IF+m)*PTP_TS_WIDTH +: PTP_TS_WIDTH] = PTP_TS_FMT_TOD ? port_rx_ptp_ts_tod : port_rx_ptp_ts_rel;
+            assign rx_ptp_ts_step[n*PORTS_PER_IF+m +: 1] = PTP_TS_FMT_TOD ? port_rx_ptp_ts_tod_step : port_rx_ptp_ts_rel_step;
 
         end
 
@@ -3707,13 +3716,14 @@ if (APP_ENABLE) begin : app
         // PTP configuration
         .PTP_CLK_PERIOD_NS_NUM(PTP_CLK_PERIOD_NS_NUM),
         .PTP_CLK_PERIOD_NS_DENOM(PTP_CLK_PERIOD_NS_DENOM),
-        .PTP_TS_WIDTH(PTP_TS_WIDTH),
         .PTP_PORT_CDC_PIPELINE(PTP_PORT_CDC_PIPELINE),
         .PTP_PEROUT_ENABLE(PTP_PEROUT_ENABLE),
         .PTP_PEROUT_COUNT(PTP_PEROUT_COUNT),
 
         // Interface configuration
         .PTP_TS_ENABLE(PTP_TS_ENABLE),
+        .PTP_TS_FMT_TOD(PTP_TS_FMT_TOD),
+        .PTP_TS_WIDTH(PTP_TS_WIDTH),
         .TX_TAG_WIDTH(TX_TAG_WIDTH),
         .MAX_TX_SIZE(MAX_TX_SIZE),
         .MAX_RX_SIZE(MAX_RX_SIZE),

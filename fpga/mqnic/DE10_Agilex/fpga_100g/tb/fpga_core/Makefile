@@ -14,6 +14,7 @@ TOPLEVEL = test_$(DUT)
 MODULE   = test_$(DUT)
 VERILOG_SOURCES += $(TOPLEVEL).v
 VERILOG_SOURCES += ../../rtl/$(DUT).v
+VERILOG_SOURCES += ../../lib/eth/rtl/ptp_td_rel2tod.v
 VERILOG_SOURCES += ../../rtl/common/mqnic_core_pcie_ptile.v
 VERILOG_SOURCES += ../../rtl/common/mqnic_core_pcie.v
 VERILOG_SOURCES += ../../rtl/common/mqnic_core.v

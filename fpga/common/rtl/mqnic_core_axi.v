@@ -46,7 +46,6 @@ module mqnic_core_axi #
     // PTP configuration
     parameter PTP_CLK_PERIOD_NS_NUM = 4,
     parameter PTP_CLK_PERIOD_NS_DENOM = 1,
-    parameter PTP_TS_WIDTH = 96,
     parameter PTP_CLOCK_PIPELINE = 0,
     parameter PTP_CLOCK_CDC_PIPELINE = 0,
     parameter PTP_SEPARATE_TX_CLOCK = 0,
@@ -81,6 +80,8 @@ module mqnic_core_axi #
 
     // Interface configuration
     parameter PTP_TS_ENABLE = 1,
+    parameter PTP_TS_FMT_TOD = 1,
+    parameter PTP_TS_WIDTH = PTP_TS_FMT_TOD ? 96 : 64,
     parameter TX_CPL_ENABLE = PTP_TS_ENABLE,
     parameter TX_CPL_FIFO_DEPTH = 32,
     parameter TX_TAG_WIDTH = $clog2(TX_DESC_TABLE_SIZE)+1,
@@ -375,8 +376,8 @@ module mqnic_core_axi #
 
     input  wire [PORT_COUNT-1:0]                      tx_ptp_clk,
     input  wire [PORT_COUNT-1:0]                      tx_ptp_rst,
-    output wire [PORT_COUNT*PTP_TS_WIDTH-1:0]         tx_ptp_ts_tod,
-    output wire [PORT_COUNT-1:0]                      tx_ptp_ts_tod_step,
+    output wire [PORT_COUNT*PTP_TS_WIDTH-1:0]         tx_ptp_ts,
+    output wire [PORT_COUNT-1:0]                      tx_ptp_ts_step,
 
     output wire [PORT_COUNT*AXIS_DATA_WIDTH-1:0]      m_axis_tx_tdata,
     output wire [PORT_COUNT*AXIS_KEEP_WIDTH-1:0]      m_axis_tx_tkeep,
@@ -403,8 +404,8 @@ module mqnic_core_axi #
 
     input  wire [PORT_COUNT-1:0]                      rx_ptp_clk,
     input  wire [PORT_COUNT-1:0]                      rx_ptp_rst,
-    output wire [PORT_COUNT*PTP_TS_WIDTH-1:0]         rx_ptp_ts_tod,
-    output wire [PORT_COUNT-1:0]                      rx_ptp_ts_tod_step,
+    output wire [PORT_COUNT*PTP_TS_WIDTH-1:0]         rx_ptp_ts,
+    output wire [PORT_COUNT-1:0]                      rx_ptp_ts_step,
 
     input  wire [PORT_COUNT*AXIS_DATA_WIDTH-1:0]      s_axis_rx_tdata,
     input  wire [PORT_COUNT*AXIS_KEEP_WIDTH-1:0]      s_axis_rx_tkeep,
@@ -991,7 +992,6 @@ mqnic_core #(
     // PTP configuration
     .PTP_CLK_PERIOD_NS_NUM(PTP_CLK_PERIOD_NS_NUM),
     .PTP_CLK_PERIOD_NS_DENOM(PTP_CLK_PERIOD_NS_DENOM),
-    .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .PTP_CLOCK_PIPELINE(PTP_CLOCK_PIPELINE),
     .PTP_CLOCK_CDC_PIPELINE(PTP_CLOCK_CDC_PIPELINE),
     .PTP_SEPARATE_TX_CLOCK(PTP_SEPARATE_TX_CLOCK),
@@ -1026,6 +1026,8 @@ mqnic_core #(
 
     // Interface configuration
     .PTP_TS_ENABLE(PTP_TS_ENABLE),
+    .PTP_TS_FMT_TOD(PTP_TS_FMT_TOD),
+    .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .TX_CPL_ENABLE(TX_CPL_ENABLE),
     .TX_CPL_FIFO_DEPTH(TX_CPL_FIFO_DEPTH),
     .TX_TAG_WIDTH(TX_TAG_WIDTH),
@@ -1332,8 +1334,8 @@ core_inst (
 
     .tx_ptp_clk(tx_ptp_clk),
     .tx_ptp_rst(tx_ptp_rst),
-    .tx_ptp_ts_tod(tx_ptp_ts_tod),
-    .tx_ptp_ts_tod_step(tx_ptp_ts_tod_step),
+    .tx_ptp_ts(tx_ptp_ts),
+    .tx_ptp_ts_step(tx_ptp_ts_step),
 
     .m_axis_tx_tdata(m_axis_tx_tdata),
     .m_axis_tx_tkeep(m_axis_tx_tkeep),
@@ -1360,8 +1362,8 @@ core_inst (
 
     .rx_ptp_clk(rx_ptp_clk),
     .rx_ptp_rst(rx_ptp_rst),
-    .rx_ptp_ts_tod(rx_ptp_ts_tod),
-    .rx_ptp_ts_tod_step(rx_ptp_ts_tod_step),
+    .rx_ptp_ts(rx_ptp_ts),
+    .rx_ptp_ts_step(rx_ptp_ts_step),
 
     .s_axis_rx_tdata(s_axis_rx_tdata),
     .s_axis_rx_tkeep(s_axis_rx_tkeep),

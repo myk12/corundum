@@ -12,7 +12,8 @@ set_property -dict [list \
     CONFIG.RX_FORWARD_CONTROL_FRAMES {0} \
     CONFIG.RX_CHECK_ACK {1} \
     CONFIG.INCLUDE_RS_FEC {1} \
-    CONFIG.ENABLE_TIME_STAMPING {1}
+    CONFIG.ENABLE_TIME_STAMPING {1} \
+    CONFIG.PTP_TRANSPCLK_MODE {1}
 ] [get_ips cmac_usplus]
 
 # disable LOC constraint

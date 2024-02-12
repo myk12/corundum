@@ -28,13 +28,14 @@ module mqnic_app_block #
     // PTP configuration
     parameter PTP_CLK_PERIOD_NS_NUM = 4,
     parameter PTP_CLK_PERIOD_NS_DENOM = 1,
-    parameter PTP_TS_WIDTH = 96,
     parameter PTP_PORT_CDC_PIPELINE = 0,
     parameter PTP_PEROUT_ENABLE = 0,
     parameter PTP_PEROUT_COUNT = 1,
 
     // Interface configuration
     parameter PTP_TS_ENABLE = 1,
+    parameter PTP_TS_FMT_TOD = 1,
+    parameter PTP_TS_WIDTH = PTP_TS_FMT_TOD ? 96 : 64,
     parameter TX_TAG_WIDTH = 16,
     parameter MAX_TX_SIZE = 9214,
     parameter MAX_RX_SIZE = 9214,

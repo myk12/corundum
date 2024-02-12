@@ -61,6 +61,7 @@ SYN_FILES += rtl/common/i2c_single_reg.v
 SYN_FILES += lib/eth/rtl/lfsr.v
 SYN_FILES += lib/eth/rtl/ptp_td_phc.v
 SYN_FILES += lib/eth/rtl/ptp_td_leaf.v
+SYN_FILES += lib/eth/rtl/ptp_td_rel2tod.v
 SYN_FILES += lib/eth/rtl/ptp_perout.v
 SYN_FILES += lib/axi/rtl/axil_interconnect.v
 SYN_FILES += lib/axi/rtl/axil_crossbar.v

@@ -622,6 +622,7 @@ def test_fpga_core(request):
         os.path.join(rtl_dir, "common", "tx_scheduler_rr.v"),
         os.path.join(eth_rtl_dir, "ptp_td_phc.v"),
         os.path.join(eth_rtl_dir, "ptp_td_leaf.v"),
+        os.path.join(eth_rtl_dir, "ptp_td_rel2tod.v"),
         os.path.join(eth_rtl_dir, "ptp_perout.v"),
         os.path.join(axi_rtl_dir, "axil_interconnect.v"),
         os.path.join(axi_rtl_dir, "axil_crossbar.v"),

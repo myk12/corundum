@@ -64,8 +64,10 @@ module tx_engine #
     parameter AXIS_DESC_KEEP_WIDTH = AXIS_DESC_DATA_WIDTH/8,
     // Enable PTP timestamping
     parameter PTP_TS_ENABLE = 1,
+    // PTP timestamp format
+    parameter PTP_TS_FMT_TOD = 1,
     // PTP timestamp width
-    parameter PTP_TS_WIDTH = 96,
+    parameter PTP_TS_WIDTH = PTP_TS_FMT_TOD ? 96 : 64,
     // Transmit tag width
     parameter TX_TAG_WIDTH = 16,
     // Enable TX checksum offload
@@ -208,6 +210,13 @@ module tx_engine #
     output wire                             s_axis_tx_cpl_ready,
 
     /*
+     * PTP clock
+     */
+    input  wire                             ptp_clk,
+    input  wire                             ptp_rst,
+    input  wire                             ptp_td_sd,
+
+    /*
      * Configuration
      */
     input  wire                             enable
@@ -297,8 +306,6 @@ reg [7:0] m_axis_tx_csum_cmd_csum_start_reg = 7'd0, m_axis_tx_csum_cmd_csum_star
 reg [7:0] m_axis_tx_csum_cmd_csum_offset_reg = 7'd0, m_axis_tx_csum_cmd_csum_offset_next;
 reg m_axis_tx_csum_cmd_valid_reg = 1'b0, m_axis_tx_csum_cmd_valid_next;
 
-reg s_axis_tx_cpl_ready_reg = 1'b0, s_axis_tx_cpl_ready_next;
-
 reg [CL_TX_BUFFER_SIZE+1-1:0] buf_wr_ptr_reg = 0, buf_wr_ptr_next;
 reg [CL_TX_BUFFER_SIZE+1-1:0] buf_rd_ptr_reg = 0, buf_rd_ptr_next;
 
@@ -340,7 +347,7 @@ reg [DMA_CLIENT_LEN_WIDTH-1:0] desc_table_len[DESC_TABLE_SIZE-1:0];
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
 reg [CL_TX_BUFFER_SIZE+1-1:0] desc_table_buf_ptr[DESC_TABLE_SIZE-1:0];
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
-reg [PTP_TS_WIDTH-1:0] desc_table_ptp_ts[DESC_TABLE_SIZE-1:0];
+reg [95:0] desc_table_ptp_ts[DESC_TABLE_SIZE-1:0];
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
 reg desc_table_read_commit[DESC_TABLE_SIZE-1:0];
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
@@ -374,7 +381,7 @@ reg desc_table_tx_start_en;
 reg [CL_DESC_TABLE_SIZE-1:0] desc_table_tx_dma_finish_ptr;
 reg desc_table_tx_dma_finish_en;
 reg [CL_DESC_TABLE_SIZE-1:0] desc_table_tx_finish_ptr;
-reg [PTP_TS_WIDTH-1:0] desc_table_tx_finish_ts;
+reg [95:0] desc_table_tx_finish_ts;
 reg desc_table_tx_finish_en;
 reg [CL_DESC_TABLE_SIZE+1-1:0] desc_table_cpl_enqueue_start_ptr_reg = 0;
 reg desc_table_cpl_enqueue_start_en;
@@ -438,7 +445,7 @@ assign m_axis_tx_csum_cmd_csum_start = m_axis_tx_csum_cmd_csum_start_reg;
 assign m_axis_tx_csum_cmd_csum_offset = m_axis_tx_csum_cmd_csum_offset_reg;
 assign m_axis_tx_csum_cmd_valid = m_axis_tx_csum_cmd_valid_reg;
 
-assign s_axis_tx_cpl_ready = s_axis_tx_cpl_ready_reg;
+assign s_axis_tx_cpl_ready = 1'b1;
 
 // reg [15:0] stall_cnt = 0;
 // wire stalled = stall_cnt[12];
@@ -474,6 +481,55 @@ assign s_axis_tx_cpl_ready = s_axis_tx_cpl_ready_reg;
 //     .probe4({desc_table_start_ptr_reg, desc_table_desc_read_start_ptr_reg, desc_table_data_fetch_start_ptr_reg, desc_table_tx_start_ptr_reg, desc_table_cpl_enqueue_start_ptr_reg, desc_table_finish_ptr_reg, stall_cnt}),
 //     .probe5(0)
 // );
+
+wire [TX_TAG_WIDTH-1:0] tx_cpl_tag;
+wire [95:0] tx_cpl_ts;
+wire tx_cpl_valid;
+
+generate
+
+if (!PTP_TS_FMT_TOD) begin : rel2tod
+
+    ptp_td_rel2tod #(
+        .TS_FNS_W(16),
+        .TS_REL_NS_W(32),
+        .TS_TOD_S_W(48),
+        .TS_REL_W(48),
+        .TS_TOD_W(96),
+        .TS_TAG_W(TX_TAG_WIDTH),
+        .TD_SDI_PIPELINE(2)
+    )
+    rel2tod_inst (
+        .clk(clk),
+        .rst(rst),
+
+        /*
+         * PTP clock interface
+         */
+        .ptp_clk(ptp_clk),
+        .ptp_rst(ptp_rst),
+        .ptp_td_sdi(ptp_td_sd),
+
+        /*
+         * Timestamp conversion
+         */
+        .input_ts_rel(s_axis_tx_cpl_ts),
+        .input_ts_tag(s_axis_tx_cpl_tag),
+        .input_ts_valid(s_axis_tx_cpl_valid),
+        .output_ts_tod(tx_cpl_ts),
+        .output_ts_tag(tx_cpl_tag),
+        .output_ts_valid(tx_cpl_valid)
+    );
+
+end else begin
+
+    assign tx_cpl_tag = s_axis_tx_cpl_tag;
+    assign tx_cpl_ts = s_axis_tx_cpl_ts;
+    assign tx_cpl_valid = s_axis_tx_cpl_valid;
+
+end
+
+endgenerate
 
 integer i;
 
@@ -539,8 +595,6 @@ always @* begin
     m_axis_tx_csum_cmd_csum_offset_next = m_axis_tx_csum_cmd_csum_offset_reg;
     m_axis_tx_csum_cmd_valid_next = m_axis_tx_csum_cmd_valid_reg && !m_axis_tx_csum_cmd_ready;
 
-    s_axis_tx_cpl_ready_next = 1'b0;
-
     buf_wr_ptr_next = buf_wr_ptr_reg;
     buf_rd_ptr_next = buf_rd_ptr_reg;
 
@@ -580,8 +634,8 @@ always @* begin
     desc_table_tx_start_en = 1'b0;
     desc_table_tx_dma_finish_ptr = s_axis_tx_desc_status_tag;
     desc_table_tx_dma_finish_en = 1'b0;
-    desc_table_tx_finish_ptr = s_axis_tx_cpl_tag;
-    desc_table_tx_finish_ts = s_axis_tx_cpl_ts;
+    desc_table_tx_finish_ptr = tx_cpl_tag;
+    desc_table_tx_finish_ts = tx_cpl_ts;
     desc_table_tx_finish_en = 1'b0;
     desc_table_cpl_enqueue_start_en = 1'b0;
     desc_table_cpl_write_done_ptr = s_axis_cpl_req_status_tag & DESC_PTR_MASK;
@@ -783,10 +837,9 @@ always @* begin
 
     // transmit done
     // wait for transmit completion; store PTP timestamp
-    s_axis_tx_cpl_ready_next = 1'b1;
-    if (s_axis_tx_cpl_valid && s_axis_tx_cpl_tag[TX_TAG_WIDTH-1]) begin
-        desc_table_tx_finish_ptr = s_axis_tx_cpl_tag;
-        desc_table_tx_finish_ts = s_axis_tx_cpl_ts;
+    if (tx_cpl_valid && tx_cpl_tag[TX_TAG_WIDTH-1]) begin
+        desc_table_tx_finish_ptr = tx_cpl_tag;
+        desc_table_tx_finish_ts = tx_cpl_ts;
         desc_table_tx_finish_en = 1'b1;
     end
 
@@ -876,7 +929,6 @@ always @(posedge clk) begin
     m_axis_tx_desc_user_reg <= m_axis_tx_desc_user_next;
     m_axis_tx_desc_valid_reg <= m_axis_tx_desc_valid_next;
 
-    s_axis_tx_cpl_ready_reg <= s_axis_tx_cpl_ready_next;
 
     m_axis_tx_csum_cmd_csum_enable_reg <= m_axis_tx_csum_cmd_csum_enable_next;
     m_axis_tx_csum_cmd_csum_start_reg <= m_axis_tx_csum_cmd_csum_start_next;
@@ -981,7 +1033,6 @@ always @(posedge clk) begin
         s_axis_desc_tready_reg <= 1'b0;
         m_axis_cpl_req_valid_reg <= 1'b0;
         m_axis_tx_desc_valid_reg <= 1'b0;
-        s_axis_tx_cpl_ready_reg <= 1'b0;
         m_axis_tx_csum_cmd_valid_reg <= 1'b0;
 
         buf_wr_ptr_reg <= 0;

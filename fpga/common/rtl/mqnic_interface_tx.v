@@ -17,9 +17,6 @@ module mqnic_interface_tx #
     // Structural configuration
     parameter PORTS = 1,
 
-    // PTP configuration
-    parameter PTP_TS_WIDTH = 96,
-
     // Queue manager configuration
     parameter TX_QUEUE_INDEX_WIDTH = 13,
     parameter QUEUE_INDEX_WIDTH = TX_QUEUE_INDEX_WIDTH,
@@ -45,6 +42,8 @@ module mqnic_interface_tx #
 
     // Interface configuration
     parameter PTP_TS_ENABLE = 1,
+    parameter PTP_TS_FMT_TOD = 1,
+    parameter PTP_TS_WIDTH = PTP_TS_FMT_TOD ? 96 : 64,
     parameter TX_TAG_WIDTH = $clog2(TX_DESC_TABLE_SIZE)+1,
     parameter TX_CHECKSUM_ENABLE = 1,
     parameter MAX_TX_SIZE = 9214,
@@ -193,6 +192,13 @@ module mqnic_interface_tx #
     output wire                                         s_axis_tx_cpl_ready,
 
     /*
+     * PTP clock
+     */
+    input  wire                                         ptp_clk,
+    input  wire                                         ptp_rst,
+    input  wire                                         ptp_td_sd,
+
+    /*
      * Configuration
      */
     input  wire [DMA_CLIENT_LEN_WIDTH-1:0]              mtu
@@ -295,6 +301,7 @@ tx_engine #(
     .AXIS_DESC_DATA_WIDTH(AXIS_DESC_DATA_WIDTH),
     .AXIS_DESC_KEEP_WIDTH(AXIS_DESC_KEEP_WIDTH),
     .PTP_TS_ENABLE(PTP_TS_ENABLE),
+    .PTP_TS_FMT_TOD(PTP_TS_FMT_TOD),
     .PTP_TS_WIDTH(PTP_TS_WIDTH),
     .TX_TAG_WIDTH(TX_TAG_WIDTH),
     .TX_CHECKSUM_ENABLE(TX_CHECKSUM_ENABLE),
@@ -431,6 +438,13 @@ tx_engine_inst (
     .s_axis_tx_cpl_tag(s_axis_tx_cpl_tag),
     .s_axis_tx_cpl_valid(s_axis_tx_cpl_valid),
     .s_axis_tx_cpl_ready(s_axis_tx_cpl_ready),
+
+    /*
+     * PTP clock
+     */
+    .ptp_clk(ptp_clk),
+    .ptp_rst(ptp_rst),
+    .ptp_td_sd(ptp_td_sd),
 
     /*
      * Configuration

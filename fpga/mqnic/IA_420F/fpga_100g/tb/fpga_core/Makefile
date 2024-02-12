@@ -65,6 +65,7 @@ VERILOG_SOURCES += ../../lib/eth/rtl/axis_xgmii_tx_64.v
 VERILOG_SOURCES += ../../lib/eth/rtl/lfsr.v
 VERILOG_SOURCES += ../../lib/eth/rtl/ptp_td_phc.v
 VERILOG_SOURCES += ../../lib/eth/rtl/ptp_td_leaf.v
+VERILOG_SOURCES += ../../lib/eth/rtl/ptp_td_rel2tod.v
 VERILOG_SOURCES += ../../lib/eth/rtl/ptp_perout.v
 VERILOG_SOURCES += ../../lib/axi/rtl/axil_interconnect.v
 VERILOG_SOURCES += ../../lib/axi/rtl/axil_crossbar.v

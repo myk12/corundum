@@ -65,6 +65,7 @@ SYN_FILES += lib/axi/rtl/axil_ram.v
 
 SYN_FILES += lib/eth/rtl/ptp_td_phc.v
 SYN_FILES += lib/eth/rtl/ptp_td_leaf.v
+SYN_FILES += lib/eth/rtl/ptp_td_rel2tod.v
 SYN_FILES += lib/eth/rtl/ptp_perout.v
 SYN_FILES += lib/axi/rtl/axil_interconnect.v
 SYN_FILES += lib/axi/rtl/axil_crossbar.v
@@ -123,6 +124,7 @@ XDC_FILES += boot.xdc
 XDC_FILES += lib/axis/syn/vivado/axis_async_fifo.tcl
 XDC_FILES += lib/axis/syn/vivado/sync_reset.tcl
 XDC_FILES += lib/eth/syn/vivado/ptp_td_leaf.tcl
+XDC_FILES += lib/eth/syn/vivado/ptp_td_rel2tod.tcl
 XDC_FILES += ../../../common/syn/vivado/mqnic_port.tcl
 XDC_FILES += ../../../common/syn/vivado/mqnic_ptp_clock.tcl
 XDC_FILES += ../../../common/syn/vivado/mqnic_rb_clk_info.tcl
