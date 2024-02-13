@@ -17,15 +17,26 @@ VERILOG_SOURCES += ../../lib/axis/rtl/axis_fifo.v
 VERILOG_SOURCES += ../../lib/axis/rtl/priority_encoder.v
 
 # module parameters
-export PARAM_AXIL_DATA_WIDTH := 32
-export PARAM_AXIL_ADDR_WIDTH := 16
-export PARAM_AXIL_STRB_WIDTH := $(shell expr $(PARAM_AXIL_DATA_WIDTH) / 8 )
 export PARAM_LEN_WIDTH := 16
+export PARAM_REQ_DEST_WIDTH := 8
 export PARAM_REQ_TAG_WIDTH := 8
 export PARAM_OP_TABLE_SIZE := 16
 export PARAM_QUEUE_INDEX_WIDTH := 6
 export PARAM_PIPELINE := 2
 export PARAM_SCHED_CTRL_ENABLE := 1
+export PARAM_REQ_DEST_DEFAULT := 0
+
+export PARAM_AXIL_BASE_ADDR := 0
+export PARAM_AXIL_DATA_WIDTH := 32
+export PARAM_AXIL_ADDR_WIDTH := $(shell expr $(PARAM_QUEUE_INDEX_WIDTH) + 2 )
+export PARAM_AXIL_STRB_WIDTH := $(shell expr $(PARAM_AXIL_DATA_WIDTH) / 8 )
+
+export PARAM_REG_ADDR_WIDTH := 12
+export PARAM_REG_DATA_WIDTH := $(PARAM_AXIL_DATA_WIDTH)
+export PARAM_REG_STRB_WIDTH := $(shell expr $(PARAM_REG_DATA_WIDTH) / 8 )
+export PARAM_RB_BLOCK_TYPE := $(shell echo $$((0x0000C040)) )
+export PARAM_RB_BASE_ADDR := 0
+export PARAM_RB_NEXT_PTR := 0
 
 ifeq ($(SIM), icarus)
 	PLUSARGS += -fst

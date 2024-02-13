@@ -5,14 +5,8 @@
 import itertools
 import logging
 import os
-import struct
-
-import scapy.utils
-from scapy.layers.l2 import Ether
-from scapy.layers.inet import IP, UDP
 
 import cocotb_test.simulator
-import pytest
 
 import cocotb
 from cocotb.clock import Clock
@@ -24,7 +18,7 @@ from cocotbext.axi.stream import define_stream
 
 
 TxReqBus, TxReqTransaction, TxReqSource, TxReqSink, TxReqMonitor = define_stream("TxReq",
-    signals=["queue", "tag", "valid"],
+    signals=["queue", "dest", "tag", "valid"],
     optional_signals=["ready"]
 )
 
@@ -79,6 +73,23 @@ class TB(object):
         if generator:
             self.tx_req_sink.set_pause_generator(generator())
 
+    async def wr_ctrl_reg(self, addr, val):
+        self.dut.ctrl_reg_wr_addr.value = addr
+        self.dut.ctrl_reg_wr_data.value = val
+        self.dut.ctrl_reg_wr_strb.value = 0xf
+        self.dut.ctrl_reg_wr_en.value = 1
+        await RisingEdge(self.dut.clk)
+        self.dut.ctrl_reg_wr_en.value = 0
+        await RisingEdge(self.dut.clk)
+
+    async def rd_ctrl_reg(self, addr):
+        self.dut.ctrl_reg_rd_addr.value = addr
+        self.dut.ctrl_reg_rd_en.value = 1
+        await RisingEdge(self.dut.clk)
+        self.dut.ctrl_reg_rd_en.value = 0
+        await RisingEdge(self.dut.clk)
+        return self.dut.ctrl_reg_rd_data.value.integer
+
     async def reset(self):
         self.dut.rst.setimmediatevalue(0)
         await RisingEdge(self.dut.clk)
@@ -96,6 +107,11 @@ async def run_test_config(dut):
     tb = TB(dut)
 
     await tb.reset()
+
+    # enable
+    assert await tb.rd_ctrl_reg(0x18) == 0
+    await tb.wr_ctrl_reg(0x18, 1)
+    assert await tb.rd_ctrl_reg(0x18) == 1
 
     assert await tb.axil_master.read_dword(0*4) == 0
 
@@ -117,6 +133,7 @@ async def run_test_single(dut, idle_inserter=None, backpressure_inserter=None):
     tb.set_backpressure_generator(backpressure_inserter)
 
     dut.enable.value = 1
+    await tb.wr_ctrl_reg(0x18, 1)
 
     await tb.axil_master.write_dword(0*4, 3)
 
@@ -173,6 +190,7 @@ async def run_test_multiple(dut, idle_inserter=None, backpressure_inserter=None)
     tb.set_backpressure_generator(backpressure_inserter)
 
     dut.enable.value = 1
+    await tb.wr_ctrl_reg(0x18, 1)
 
     for k in range(10):
         await tb.axil_master.write_dword(k*4, 3)
@@ -228,6 +246,7 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
     tb.set_backpressure_generator(backpressure_inserter)
 
     dut.enable.value = 1
+    await tb.wr_ctrl_reg(0x18, 1)
 
     await tb.axil_master.write_dword(0*4, 3)
 
@@ -366,15 +385,26 @@ def test_tx_scheduler_rr(request):
 
     parameters = {}
 
-    parameters['AXIL_DATA_WIDTH'] = 32
-    parameters['AXIL_ADDR_WIDTH'] = 16
-    parameters['AXIL_STRB_WIDTH'] = parameters['AXIL_DATA_WIDTH'] // 8
     parameters['LEN_WIDTH'] = 16
+    parameters['REQ_DEST_WIDTH'] = 8
     parameters['REQ_TAG_WIDTH'] = 8
     parameters['OP_TABLE_SIZE'] = 16
     parameters['QUEUE_INDEX_WIDTH'] = 6
     parameters['PIPELINE'] = 2
     parameters['SCHED_CTRL_ENABLE'] = 1
+    parameters['REQ_DEST_DEFAULT'] = 0
+
+    parameters['AXIL_BASE_ADDR'] = 0
+    parameters['AXIL_DATA_WIDTH'] = 32
+    parameters['AXIL_ADDR_WIDTH'] = parameters['QUEUE_INDEX_WIDTH'] + 2
+    parameters['AXIL_STRB_WIDTH'] = parameters['AXIL_DATA_WIDTH'] // 8
+
+    parameters['REG_ADDR_WIDTH'] = 12
+    parameters['REG_DATA_WIDTH'] = parameters['AXIL_DATA_WIDTH']
+    parameters['REG_STRB_WIDTH'] = parameters['REG_DATA_WIDTH'] // 8
+    parameters['RB_BLOCK_TYPE'] = 0x0000C040
+    parameters['RB_BASE_ADDR'] = 0
+    parameters['RB_NEXT_PTR'] = 0
 
     extra_env = {f'PARAM_{k}': str(v) for k, v in parameters.items()}
 

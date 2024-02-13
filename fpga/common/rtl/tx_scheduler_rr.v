@@ -14,33 +14,54 @@
  */
 module tx_scheduler_rr #
 (
-    // Width of AXI lite data bus in bits
-    parameter AXIL_DATA_WIDTH = 32,
-    // Width of AXI lite address bus in bits
-    parameter AXIL_ADDR_WIDTH = 16,
-    // Width of AXI lite wstrb (width of data bus in words)
-    parameter AXIL_STRB_WIDTH = (AXIL_DATA_WIDTH/8),
-    // Length field width
+    // Scheduler configuration
     parameter LEN_WIDTH = 16,
-    // Transmit request tag field width
+    parameter REQ_DEST_WIDTH = 8,
     parameter REQ_TAG_WIDTH = 8,
-    // Number of outstanding operations
     parameter OP_TABLE_SIZE = 16,
-    // Queue index width
     parameter QUEUE_INDEX_WIDTH = 6,
-    // Pipeline stages
     parameter PIPELINE = 2,
-    // Scheduler control input enable
-    parameter SCHED_CTRL_ENABLE = 0
+    parameter SCHED_CTRL_ENABLE = 0,
+    parameter REQ_DEST_DEFAULT = 0,
+
+    // AXI lite interface configuration
+    parameter AXIL_BASE_ADDR = 0,
+    parameter AXIL_DATA_WIDTH = 32,
+    parameter AXIL_ADDR_WIDTH = QUEUE_INDEX_WIDTH+2,
+    parameter AXIL_STRB_WIDTH = (AXIL_DATA_WIDTH/8),
+
+    // Register interface configuration
+    parameter REG_ADDR_WIDTH = $clog2(32),
+    parameter REG_DATA_WIDTH = AXIL_DATA_WIDTH,
+    parameter REG_STRB_WIDTH = (REG_DATA_WIDTH/8),
+    parameter RB_BLOCK_TYPE = 32'h0000C040,
+    parameter RB_BASE_ADDR = 0,
+    parameter RB_NEXT_PTR = 0
 )
 (
     input  wire                          clk,
     input  wire                          rst,
 
     /*
+     * Control register interface
+     */
+    input  wire [REG_ADDR_WIDTH-1:0]     ctrl_reg_wr_addr,
+    input  wire [REG_DATA_WIDTH-1:0]     ctrl_reg_wr_data,
+    input  wire [REG_STRB_WIDTH-1:0]     ctrl_reg_wr_strb,
+    input  wire                          ctrl_reg_wr_en,
+    output wire                          ctrl_reg_wr_wait,
+    output wire                          ctrl_reg_wr_ack,
+    input  wire [REG_ADDR_WIDTH-1:0]     ctrl_reg_rd_addr,
+    input  wire                          ctrl_reg_rd_en,
+    output wire [REG_DATA_WIDTH-1:0]     ctrl_reg_rd_data,
+    output wire                          ctrl_reg_rd_wait,
+    output wire                          ctrl_reg_rd_ack,
+
+    /*
      * Transmit request output (queue index)
      */
     output wire [QUEUE_INDEX_WIDTH-1:0]  m_axis_tx_req_queue,
+    output wire [REQ_DEST_WIDTH-1:0]     m_axis_tx_req_dest,
     output wire [REQ_TAG_WIDTH-1:0]      m_axis_tx_req_tag,
     output wire                          m_axis_tx_req_valid,
     input  wire                          m_axis_tx_req_ready,
@@ -113,7 +134,9 @@ parameter CL_OP_TABLE_SIZE = $clog2(OP_TABLE_SIZE);
 parameter QUEUE_RAM_BE_WIDTH = 2;
 parameter QUEUE_RAM_WIDTH = QUEUE_RAM_BE_WIDTH*8;
 
-// bus width assertions
+localparam RBB = RB_BASE_ADDR & {REG_ADDR_WIDTH{1'b1}};
+
+// check configuration
 initial begin
     if (REQ_TAG_WIDTH < CL_OP_TABLE_SIZE) begin
         $error("Error: REQ_TAG_WIDTH insufficient for OP_TABLE_SIZE (instance %m)");
@@ -130,13 +153,33 @@ initial begin
         $finish;
     end
 
-    if (AXIL_ADDR_WIDTH < QUEUE_INDEX_WIDTH+5) begin
+    if (AXIL_ADDR_WIDTH < QUEUE_INDEX_WIDTH+2) begin
         $error("Error: AXI lite address width too narrow (instance %m)");
         $finish;
     end
 
     if (PIPELINE < 2) begin
         $error("Error: PIPELINE must be at least 2 (instance %m)");
+        $finish;
+    end
+
+    if (REG_DATA_WIDTH != 32) begin
+        $error("Error: Register interface width must be 32 (instance %m)");
+        $finish;
+    end
+
+    if (REG_STRB_WIDTH * 8 != REG_DATA_WIDTH) begin
+        $error("Error: Register interface requires byte (8-bit) granularity (instance %m)");
+        $finish;
+    end
+
+    if (REG_ADDR_WIDTH < $clog2(32)) begin
+        $error("Error: Register address width too narrow (instance %m)");
+        $finish;
+    end
+
+    if (RB_NEXT_PTR && RB_NEXT_PTR >= RB_BASE_ADDR && RB_NEXT_PTR < RB_BASE_ADDR + 32) begin
+        $error("Error: RB_NEXT_PTR overlaps block (instance %m)");
         $finish;
     end
 end
@@ -165,6 +208,7 @@ reg [REQ_TAG_WIDTH-1:0] req_tag_pipeline_reg[PIPELINE-1:0], req_tag_pipeline_nex
 reg [CL_OP_TABLE_SIZE-1:0] op_index_pipeline_reg[PIPELINE-1:0], op_index_pipeline_next[PIPELINE-1:0];
 
 reg [QUEUE_INDEX_WIDTH-1:0] m_axis_tx_req_queue_reg = {QUEUE_INDEX_WIDTH{1'b0}}, m_axis_tx_req_queue_next;
+reg [REQ_DEST_WIDTH-1:0] m_axis_tx_req_dest_reg = REQ_DEST_DEFAULT;
 reg [REQ_TAG_WIDTH-1:0] m_axis_tx_req_tag_reg = {REQ_TAG_WIDTH{1'b0}}, m_axis_tx_req_tag_next;
 reg m_axis_tx_req_valid_reg = 1'b0, m_axis_tx_req_valid_next;
 
@@ -241,6 +285,7 @@ reg [QUEUE_INDEX_WIDTH-1:0] init_index_reg = 0, init_index_next;
 reg [QUEUE_INDEX_WIDTH:0] active_queue_count_reg = 0, active_queue_count_next;
 
 assign m_axis_tx_req_queue = m_axis_tx_req_queue_reg;
+assign m_axis_tx_req_dest = m_axis_tx_req_dest_reg;
 assign m_axis_tx_req_tag = m_axis_tx_req_tag_reg;
 assign m_axis_tx_req_valid = m_axis_tx_req_valid_reg;
 
@@ -390,6 +435,70 @@ initial begin
         op_table_prev_index[i] = 0;
         op_table_doorbell[i] = 0;
         op_table_is_head[i] = 0;
+    end
+end
+
+// control registers
+reg ctrl_reg_wr_ack_reg = 1'b0;
+reg [REG_DATA_WIDTH-1:0] ctrl_reg_rd_data_reg = {REG_DATA_WIDTH{1'b0}};
+reg ctrl_reg_rd_ack_reg = 1'b0;
+
+reg enable_reg = 1'b0;
+
+assign ctrl_reg_wr_wait = 1'b0;
+assign ctrl_reg_wr_ack = ctrl_reg_wr_ack_reg;
+assign ctrl_reg_rd_data = ctrl_reg_rd_data_reg;
+assign ctrl_reg_rd_wait = 1'b0;
+assign ctrl_reg_rd_ack = ctrl_reg_rd_ack_reg;
+
+integer k;
+
+always @(posedge clk) begin
+    ctrl_reg_wr_ack_reg <= 1'b0;
+    ctrl_reg_rd_data_reg <= {REG_DATA_WIDTH{1'b0}};
+    ctrl_reg_rd_ack_reg <= 1'b0;
+
+    if (ctrl_reg_wr_en && !ctrl_reg_wr_ack_reg) begin
+        // write operation
+        ctrl_reg_wr_ack_reg <= 1'b1;
+        case ({ctrl_reg_wr_addr >> 2, 2'b00})
+            // Round-robin scheduler
+            RBB+8'h18: begin
+                // Sched: control
+                enable_reg <= ctrl_reg_wr_data[0];
+            end
+            RBB+8'h1C: m_axis_tx_req_dest_reg <= ctrl_reg_wr_data;  // Sched: dest
+            default: ctrl_reg_wr_ack_reg <= 1'b0;
+        endcase
+    end
+
+    if (ctrl_reg_rd_en && !ctrl_reg_rd_ack_reg) begin
+        // read operation
+        ctrl_reg_rd_ack_reg <= 1'b1;
+        case ({ctrl_reg_rd_addr >> 2, 2'b00})
+            // Round-robin scheduler
+            RBB+8'h00: ctrl_reg_rd_data_reg <= RB_BLOCK_TYPE;         // Sched: Type
+            RBB+8'h04: ctrl_reg_rd_data_reg <= 32'h00000100;          // Sched: Version
+            RBB+8'h08: ctrl_reg_rd_data_reg <= RB_NEXT_PTR;           // Sched: Next header
+            RBB+8'h0C: ctrl_reg_rd_data_reg <= AXIL_BASE_ADDR;        // Sched: Offset
+            RBB+8'h10: ctrl_reg_rd_data_reg <= 2**QUEUE_INDEX_WIDTH;  // Sched: Channel count
+            RBB+8'h14: ctrl_reg_rd_data_reg <= 4;                     // Sched: Channel stride
+            RBB+8'h18: begin
+                // Sched: control
+                ctrl_reg_rd_data_reg[0] <= enable_reg;
+                ctrl_reg_rd_data_reg[8] <= active_queue_count_reg != 0;
+            end
+            RBB+8'h1C: ctrl_reg_rd_data_reg <= m_axis_tx_req_dest_reg;  // Sched: dest
+            default: ctrl_reg_rd_ack_reg <= 1'b0;
+        endcase
+    end
+
+    if (rst) begin
+        ctrl_reg_wr_ack_reg <= 1'b0;
+        ctrl_reg_rd_ack_reg <= 1'b0;
+
+        enable_reg <= 1'b0;
+        m_axis_tx_req_dest_reg <= REQ_DEST_DEFAULT;
     end
 end
 
