@@ -943,15 +943,14 @@ always @* begin
             m_axis_cpl_req_data_next[31:16] = desc_table_queue_ptr[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
             m_axis_cpl_req_data_next[47:32] = desc_table_dma_len[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
             if (PTP_TS_ENABLE) begin
-                //m_axis_cpl_req_data_next[127:64] = desc_table_ptp_ts[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK] >> 16;
-                m_axis_cpl_req_data_next[111:64] = desc_table_ptp_ts[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK] >> 16;
+                m_axis_cpl_req_data_next[111:48] = desc_table_ptp_ts[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
+            end
+            if (RX_CHECKSUM_ENABLE) begin
+                m_axis_cpl_req_data_next[127:112] = desc_table_csum[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
             end
             if (RX_HASH_ENABLE) begin
                 m_axis_cpl_req_data_next[159:128] = desc_table_hash[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
                 m_axis_cpl_req_data_next[167:160] = desc_table_hash_type[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
-            end
-            if (RX_CHECKSUM_ENABLE) begin
-                m_axis_cpl_req_data_next[127:112] = desc_table_csum[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
             end
             m_axis_cpl_req_data_next[176:168] = desc_table_id[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
             m_axis_cpl_req_valid_next = 1'b1;

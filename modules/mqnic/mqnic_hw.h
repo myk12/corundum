@@ -395,7 +395,7 @@ struct mqnic_cpl {
 	__le16 queue;
 	__le16 index;
 	__le16 len;
-	__le16 rsvd0;
+	__le16 ts_fns;
 	__le32 ts_ns;
 	__le16 ts_s;
 	__le16 rx_csum;

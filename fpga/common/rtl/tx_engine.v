@@ -860,8 +860,7 @@ always @* begin
             m_axis_cpl_req_data_next[31:16] = desc_table_queue_ptr[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
             m_axis_cpl_req_data_next[47:32] = desc_table_len[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
             if (PTP_TS_ENABLE) begin
-                //m_axis_cpl_req_data_next[127:64] = desc_table_ptp_ts[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK] >> 16;
-                m_axis_cpl_req_data_next[111:64] = desc_table_ptp_ts[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK] >> 16;
+                m_axis_cpl_req_data_next[111:48] = desc_table_ptp_ts[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
             end
             m_axis_cpl_req_data_next[176:168] = desc_table_dest[desc_table_cpl_enqueue_start_ptr_reg & DESC_PTR_MASK];
             m_axis_cpl_req_valid_next = 1'b1;
