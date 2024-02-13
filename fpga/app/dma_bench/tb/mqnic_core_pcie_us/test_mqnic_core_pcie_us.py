@@ -308,14 +308,14 @@ class TB(object):
                     tx_clk=iface.port[k].port_tx_clk,
                     tx_rst=iface.port[k].port_tx_rst,
                     tx_bus=AxiStreamBus.from_prefix(iface.interface_inst.port[k].port_inst.port_tx_inst, "m_axis_tx"),
-                    tx_ptp_time=iface.port[k].port_tx_ptp_ts_tod,
+                    tx_ptp_time=iface.port[k].port_tx_ptp_ts_tod if core_inst.PTP_TS_FMT_TOD.value else iface.port[k].port_tx_ptp_ts_rel,
                     tx_ptp_ts=iface.interface_inst.port[k].port_inst.port_tx_inst.s_axis_tx_cpl_ts,
                     tx_ptp_ts_tag=iface.interface_inst.port[k].port_inst.port_tx_inst.s_axis_tx_cpl_tag,
                     tx_ptp_ts_valid=iface.interface_inst.port[k].port_inst.port_tx_inst.s_axis_tx_cpl_valid,
                     rx_clk=iface.port[k].port_rx_clk,
                     rx_rst=iface.port[k].port_rx_rst,
                     rx_bus=AxiStreamBus.from_prefix(iface.interface_inst.port[k].port_inst.port_rx_inst, "s_axis_rx"),
-                    rx_ptp_time=iface.port[k].port_rx_ptp_ts_tod,
+                    rx_ptp_time=iface.port[k].port_rx_ptp_ts_tod if core_inst.PTP_TS_FMT_TOD.value else iface.port[k].port_rx_ptp_ts_rel,
                     ifg=12, speed=eth_speed
                 )
 
