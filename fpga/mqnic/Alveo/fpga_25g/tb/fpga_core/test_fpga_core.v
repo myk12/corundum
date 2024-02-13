@@ -71,8 +71,6 @@ module test_fpga_core #
     parameter PTP_PORT_CDC_PIPELINE = 0,
     parameter PTP_PEROUT_ENABLE = 0,
     parameter PTP_PEROUT_COUNT = 1,
-    parameter IF_PTP_PERIOD_NS = 6'h6,
-    parameter IF_PTP_PERIOD_FNS = 16'h6666,
 
     // Queue manager configuration
     parameter EVENT_QUEUE_OP_TABLE_SIZE = 32,
@@ -560,8 +558,6 @@ fpga_core #(
     .PTP_PORT_CDC_PIPELINE(PTP_PORT_CDC_PIPELINE),
     .PTP_PEROUT_ENABLE(PTP_PEROUT_ENABLE),
     .PTP_PEROUT_COUNT(PTP_PEROUT_COUNT),
-    .IF_PTP_PERIOD_NS(IF_PTP_PERIOD_NS),
-    .IF_PTP_PERIOD_FNS(IF_PTP_PERIOD_FNS),
 
     // Queue manager configuration
     .EVENT_QUEUE_OP_TABLE_SIZE(EVENT_QUEUE_OP_TABLE_SIZE),

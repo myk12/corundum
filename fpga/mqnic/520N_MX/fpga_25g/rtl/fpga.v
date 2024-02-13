@@ -191,8 +191,6 @@ module fpga #
 // PTP configuration
 parameter PTP_CLK_PERIOD_NS_NUM = 1024;
 parameter PTP_CLK_PERIOD_NS_DENOM = 165;
-parameter IF_PTP_PERIOD_NS = 6'h6;
-parameter IF_PTP_PERIOD_FNS = 16'h6666;
 
 // Interface configuration
 parameter PTP_TS_FMT_TOD = 0;
@@ -1287,8 +1285,6 @@ fpga_core #(
     .PTP_PORT_CDC_PIPELINE(PTP_PORT_CDC_PIPELINE),
     .PTP_PEROUT_ENABLE(PTP_PEROUT_ENABLE),
     .PTP_PEROUT_COUNT(PTP_PEROUT_COUNT),
-    .IF_PTP_PERIOD_NS(IF_PTP_PERIOD_NS),
-    .IF_PTP_PERIOD_FNS(IF_PTP_PERIOD_FNS),
 
     // Queue manager configuration
     .EVENT_QUEUE_OP_TABLE_SIZE(EVENT_QUEUE_OP_TABLE_SIZE),

@@ -254,8 +254,6 @@ module fpga #
 // PTP configuration
 parameter PTP_CLK_PERIOD_NS_NUM = 1024;
 parameter PTP_CLK_PERIOD_NS_DENOM = 165;
-parameter IF_PTP_PERIOD_NS = 6'h2;
-parameter IF_PTP_PERIOD_FNS = 16'h8F5C;
 
 // Interface configuration
 parameter PTP_TS_FMT_TOD = 0;

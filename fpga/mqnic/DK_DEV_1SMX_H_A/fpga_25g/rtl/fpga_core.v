@@ -45,8 +45,6 @@ module fpga_core #
     parameter PTP_PORT_CDC_PIPELINE = 0,
     parameter PTP_PEROUT_ENABLE = 1,
     parameter PTP_PEROUT_COUNT = 1,
-    parameter IF_PTP_PERIOD_NS = 6'h6,
-    parameter IF_PTP_PERIOD_FNS = 16'h6666,
 
     // Queue manager configuration
     parameter EVENT_QUEUE_OP_TABLE_SIZE = 32,
@@ -743,8 +741,6 @@ generate
             .ENABLE_PADDING(ENABLE_PADDING),
             .ENABLE_DIC(ENABLE_DIC),
             .MIN_FRAME_LENGTH(MIN_FRAME_LENGTH),
-            .PTP_PERIOD_NS(IF_PTP_PERIOD_NS),
-            .PTP_PERIOD_FNS(IF_PTP_PERIOD_FNS),
             .PTP_TS_ENABLE(PTP_TS_ENABLE),
             .PTP_TS_FMT_TOD(PTP_TS_FMT_TOD),
             .PTP_TS_WIDTH(PTP_TS_WIDTH),
