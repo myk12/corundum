@@ -884,7 +884,7 @@ sync_reset #(
 )
 sync_reset_rx_rst_inst (
     .clk(rx_clk),
-    .rst(gt_tx_reset_out[0] || ~gt_rx_reset_done || rx_reset_drp_reg || drp_rst || xcvr_ctrl_rst),
+    .rst(gt_rx_reset_out[0] || ~gt_rx_reset_done || rx_reset_drp_reg || drp_rst || xcvr_ctrl_rst),
     .out(rx_rst_int)
 );
 
