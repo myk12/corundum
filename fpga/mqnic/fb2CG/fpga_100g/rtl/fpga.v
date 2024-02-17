@@ -129,6 +129,7 @@ module fpga #
     parameter AXIS_ETH_TX_TS_PIPELINE = 0,
     parameter AXIS_ETH_RX_PIPELINE = 0,
     parameter AXIS_ETH_RX_FIFO_PIPELINE = 2,
+    parameter ETH_RX_CLK_FROM_TX = 0,
 
     // Statistics counter subsystem
     parameter STAT_ENABLE = 1,
@@ -977,6 +978,8 @@ wire                           qsfp_0_rx_axis_tvalid_int;
 wire                           qsfp_0_rx_axis_tlast_int;
 wire [80+1-1:0]                qsfp_0_rx_axis_tuser_int;
 
+wire                           qsfp_0_rx_ptp_clk_int;
+wire                           qsfp_0_rx_ptp_rst_int;
 wire [79:0]                    qsfp_0_rx_ptp_time_int;
 
 wire        qsfp_0_drp_clk = clk_125mhz_int;
@@ -1044,6 +1047,7 @@ cmac_gty_wrapper #(
     .AXIS_KEEP_WIDTH(AXIS_ETH_KEEP_WIDTH),
     .TX_SERDES_PIPELINE(0),
     .RX_SERDES_PIPELINE(0),
+    .RX_CLK_FROM_TX(ETH_RX_CLK_FROM_TX),
     .RS_FEC_ENABLE(1)
 )
 qsfp_0_cmac_inst (
@@ -1109,6 +1113,8 @@ qsfp_0_cmac_inst (
     .rx_axis_tlast(qsfp_0_rx_axis_tlast_int),
     .rx_axis_tuser(qsfp_0_rx_axis_tuser_int),
 
+    .rx_ptp_clk(qsfp_0_rx_ptp_clk_int),
+    .rx_ptp_rst(qsfp_0_rx_ptp_rst_int),
     .rx_ptp_time(qsfp_0_rx_ptp_time_int),
 
     .rx_enable(qsfp_0_rx_enable),
@@ -1146,6 +1152,8 @@ wire                           qsfp_1_rx_axis_tvalid_int;
 wire                           qsfp_1_rx_axis_tlast_int;
 wire [80+1-1:0]                qsfp_1_rx_axis_tuser_int;
 
+wire                           qsfp_1_rx_ptp_clk_int;
+wire                           qsfp_1_rx_ptp_rst_int;
 wire [79:0]                    qsfp_1_rx_ptp_time_int;
 
 wire        qsfp_1_drp_clk = clk_125mhz_int;
@@ -1213,6 +1221,7 @@ cmac_gty_wrapper #(
     .AXIS_KEEP_WIDTH(AXIS_ETH_KEEP_WIDTH),
     .TX_SERDES_PIPELINE(0),
     .RX_SERDES_PIPELINE(0),
+    .RX_CLK_FROM_TX(ETH_RX_CLK_FROM_TX),
     .RS_FEC_ENABLE(1)
 )
 qsfp_1_cmac_inst (
@@ -1278,6 +1287,8 @@ qsfp_1_cmac_inst (
     .rx_axis_tlast(qsfp_1_rx_axis_tlast_int),
     .rx_axis_tuser(qsfp_1_rx_axis_tuser_int),
 
+    .rx_ptp_clk(qsfp_1_rx_ptp_clk_int),
+    .rx_ptp_rst(qsfp_1_rx_ptp_rst_int),
     .rx_ptp_time(qsfp_1_rx_ptp_time_int),
 
     .rx_enable(qsfp_1_rx_enable),
@@ -2040,6 +2051,7 @@ fpga_core #(
     .AXIS_ETH_TX_TS_PIPELINE(AXIS_ETH_TX_TS_PIPELINE),
     .AXIS_ETH_RX_PIPELINE(AXIS_ETH_RX_PIPELINE),
     .AXIS_ETH_RX_FIFO_PIPELINE(AXIS_ETH_RX_FIFO_PIPELINE),
+    .ETH_RX_CLK_FROM_TX(ETH_RX_CLK_FROM_TX),
 
     // Statistics counter subsystem
     .STAT_ENABLE(STAT_ENABLE),
@@ -2189,6 +2201,8 @@ core_inst (
     .qsfp_0_rx_axis_tvalid(qsfp_0_rx_axis_tvalid_int),
     .qsfp_0_rx_axis_tlast(qsfp_0_rx_axis_tlast_int),
     .qsfp_0_rx_axis_tuser(qsfp_0_rx_axis_tuser_int),
+    .qsfp_0_rx_ptp_clk(qsfp_0_rx_ptp_clk_int),
+    .qsfp_0_rx_ptp_rst(qsfp_0_rx_ptp_rst_int),
     .qsfp_0_rx_ptp_time(qsfp_0_rx_ptp_time_int),
 
     .qsfp_0_rx_enable(qsfp_0_rx_enable),
@@ -2247,6 +2261,8 @@ core_inst (
     .qsfp_1_rx_axis_tvalid(qsfp_1_rx_axis_tvalid_int),
     .qsfp_1_rx_axis_tlast(qsfp_1_rx_axis_tlast_int),
     .qsfp_1_rx_axis_tuser(qsfp_1_rx_axis_tuser_int),
+    .qsfp_1_rx_ptp_clk(qsfp_1_rx_ptp_clk_int),
+    .qsfp_1_rx_ptp_rst(qsfp_1_rx_ptp_rst_int),
     .qsfp_1_rx_ptp_time(qsfp_1_rx_ptp_time_int),
 
     .qsfp_1_rx_enable(qsfp_1_rx_enable),

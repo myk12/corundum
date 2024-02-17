@@ -210,6 +210,7 @@ export PARAM_AXIS_ETH_TX_FIFO_PIPELINE := 2
 export PARAM_AXIS_ETH_TX_TS_PIPELINE := 0
 export PARAM_AXIS_ETH_RX_PIPELINE := 0
 export PARAM_AXIS_ETH_RX_FIFO_PIPELINE := 2
+export PARAM_ETH_RX_CLK_FROM_TX := 0
 
 # Statistics counter subsystem
 export PARAM_STAT_ENABLE := 1
