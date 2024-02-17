@@ -776,6 +776,7 @@ def test_fpga_core(request):
     parameters['AXIS_ETH_TX_TS_PIPELINE'] = 0
     parameters['AXIS_ETH_RX_PIPELINE'] = 0
     parameters['AXIS_ETH_RX_FIFO_PIPELINE'] = 2
+    parameters['ETH_RX_CLK_FROM_TX'] = 0
 
     # Statistics counter subsystem
     parameters['STAT_ENABLE'] = 1
