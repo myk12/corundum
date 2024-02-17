@@ -168,6 +168,7 @@ module fpga_core #
     parameter AXIS_ETH_TX_TS_PIPELINE = 4,
     parameter AXIS_ETH_RX_PIPELINE = 4,
     parameter AXIS_ETH_RX_FIFO_PIPELINE = 4,
+    parameter ETH_RX_CLK_FROM_TX = 0,
 
     // Statistics counter subsystem
     parameter STAT_ENABLE = 1,
@@ -319,6 +320,8 @@ module fpga_core #
     input  wire [QSFP_CNT-1:0]                      qsfp_rx_axis_tlast,
     input  wire [QSFP_CNT*(80+1)-1:0]               qsfp_rx_axis_tuser,
 
+    input  wire [QSFP_CNT-1:0]                      qsfp_rx_ptp_clk,
+    input  wire [QSFP_CNT-1:0]                      qsfp_rx_ptp_rst,
     output wire [QSFP_CNT*80-1:0]                   qsfp_rx_ptp_time,
 
     output wire [QSFP_CNT-1:0]                      qsfp_rx_enable,
@@ -949,8 +952,8 @@ mqnic_port_map_mac_axis_inst (
     .mac_rx_clk(qsfp_rx_clk),
     .mac_rx_rst(qsfp_rx_rst),
 
-    .mac_rx_ptp_clk({QSFP_CNT{1'b0}}),
-    .mac_rx_ptp_rst({QSFP_CNT{1'b0}}),
+    .mac_rx_ptp_clk(qsfp_rx_ptp_clk),
+    .mac_rx_ptp_rst(qsfp_rx_ptp_rst),
     .mac_rx_ptp_ts_96(qsfp_rx_ptp_time_int),
     .mac_rx_ptp_ts_step(),
 
@@ -1051,7 +1054,7 @@ mqnic_core_pcie_us #(
     .PTP_CLOCK_PIPELINE(PTP_CLOCK_PIPELINE),
     .PTP_CLOCK_CDC_PIPELINE(PTP_CLOCK_CDC_PIPELINE),
     .PTP_SEPARATE_TX_CLOCK(0),
-    .PTP_SEPARATE_RX_CLOCK(0),
+    .PTP_SEPARATE_RX_CLOCK(ETH_RX_CLK_FROM_TX),
     .PTP_PORT_CDC_PIPELINE(PTP_PORT_CDC_PIPELINE),
     .PTP_PEROUT_ENABLE(PTP_PEROUT_ENABLE),
     .PTP_PEROUT_COUNT(PTP_PEROUT_COUNT),
