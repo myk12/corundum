@@ -10,6 +10,7 @@ from scapy.layers.l2 import Ether
 from scapy.layers.inet import IP, UDP
 
 import cocotb_test.simulator
+import pytest
 
 import cocotb
 from cocotb.log import SimLog
@@ -569,7 +570,11 @@ eth_rtl_dir = os.path.abspath(os.path.join(lib_dir, 'eth', 'rtl'))
 pcie_rtl_dir = os.path.abspath(os.path.join(lib_dir, 'pcie', 'rtl'))
 
 
-def test_fpga_core(request):
+@pytest.mark.parametrize(("qsfp_cnt", "if_cnt", "ports_per_if", "sched_per_if"), [
+            (1, 1, 1, 1),
+            (2, 2, 1, 1),
+        ])
+def test_fpga_core(request, qsfp_cnt, if_cnt, ports_per_if, sched_per_if):
     dut = "fpga_core"
     module = os.path.splitext(os.path.basename(__file__))[0]
     toplevel = f"test_{dut}"
@@ -676,10 +681,13 @@ def test_fpga_core(request):
 
     parameters = {}
 
+    # Board configuration
+    parameters["QSFP_CNT"] = qsfp_cnt
+
     # Structural configuration
-    parameters['IF_COUNT'] = 2
-    parameters['PORTS_PER_IF'] = 1
-    parameters['SCHED_PER_IF'] = parameters['PORTS_PER_IF']
+    parameters['IF_COUNT'] = if_cnt
+    parameters['PORTS_PER_IF'] = ports_per_if
+    parameters['SCHED_PER_IF'] = sched_per_if
     parameters['PORT_MASK'] = 0
 
     # Clock configuration
