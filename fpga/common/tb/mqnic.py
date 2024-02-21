@@ -1075,14 +1075,46 @@ class BaseScheduler:
     async def init(self):
         pass
 
+    async def enable(self):
+        pass
+
+    async def disable(self):
+        pass
+
 
 class SchedulerRoundRobin(BaseScheduler):
     def __init__(self, port, index, rb):
         super().__init__(port, index, rb)
 
+        self.queue_count = None
+        self.queue_stride = None
+
     async def init(self):
+        await super().init()
+
         offset = await self.rb.read_dword(MQNIC_RB_SCHED_RR_REG_OFFSET)
         self.hw_regs = self.rb.parent.create_window(offset)
+
+        self.queue_count = await self.rb.read_dword(MQNIC_RB_SCHED_RR_REG_CH_COUNT)
+        self.queue_stride = await self.rb.read_dword(MQNIC_RB_SCHED_RR_REG_CH_STRIDE)
+
+    async def enable(self):
+        await self.set_ctrl(1)
+
+        for q in self.port.interface.txq:
+            await self.hw_regs.write_dword(q.index*4, 0x00000003)
+
+    async def disable(self):
+        await self.set_ctrl(0)
+
+        for q in self.port.interface.txq:
+            await self.hw_regs.write_dword(q.index*4, 0x00000000)
+
+    async def get_ctrl(self):
+        return await self.rb.read_dword(MQNIC_RB_SCHED_RR_REG_CTRL)
+
+    async def set_ctrl(self, val):
+        await self.rb.write_dword(MQNIC_RB_SCHED_RR_REG_CTRL, val)
 
 
 class SchedulerControlTdma(BaseScheduler):
@@ -1090,8 +1122,15 @@ class SchedulerControlTdma(BaseScheduler):
         super().__init__(port, index, rb)
 
     async def init(self):
+        await super().init()
         offset = await self.rb.read_dword(MQNIC_RB_SCHED_CTRL_TDMA_REG_OFFSET)
         self.hw_regs = self.rb.parent.create_window(offset)
+
+    async def enable(self):
+        pass
+
+    async def disable(self):
+        pass
 
 
 class SchedulerBlock:
@@ -1132,6 +1171,14 @@ class SchedulerBlock:
                 self.sched_count += 1
 
         self.log.info("Scheduler count: %d", self.sched_count)
+
+    async def activate(self):
+        for sched in self.schedulers:
+            await sched.enable()
+
+    async def deactivate(self):
+        for sched in self.schedulers:
+            await sched.disable()
 
 
 class Port:
@@ -1342,11 +1389,13 @@ class Interface:
 
         val = await self.rx_queue_map_rb.read_dword(MQNIC_RB_RX_QUEUE_MAP_REG_CFG)
         self.rx_queue_map_indir_table_size = 2**((val >> 8) & 0xff)
+        self.rx_queue_map_indir_table_regs = []
         self.rx_queue_map_indir_table = []
         for k in range(self.port_count):
             offset = await self.rx_queue_map_rb.read_dword(MQNIC_RB_RX_QUEUE_MAP_CH_OFFSET +
                     MQNIC_RB_RX_QUEUE_MAP_CH_STRIDE*k + MQNIC_RB_RX_QUEUE_MAP_CH_REG_OFFSET)
-            self.rx_queue_map_indir_table.append(self.rx_queue_map_rb.parent.create_window(offset))
+            self.rx_queue_map_indir_table_regs.append(self.rx_queue_map_rb.parent.create_window(offset))
+            self.rx_queue_map_indir_table.append([0 for x in range(self.rx_queue_map_indir_table_size)])
 
             await self.set_rx_queue_map_rss_mask(k, 0)
             await self.set_rx_queue_map_app_mask(k, 0)
@@ -1406,7 +1455,6 @@ class Interface:
             await cq.arm()
             rxq = Rxq(self)
             await rxq.open(cq, 1024, 4)
-            await rxq.enable()
             self.rxq.append(rxq)
 
         for k in range(self.txq_res.get_count()):
@@ -1415,13 +1463,31 @@ class Interface:
             await cq.arm()
             txq = Txq(self)
             await txq.open(cq, 1024, 4)
-            await txq.enable()
             self.txq.append(txq)
+
+        for k in range(self.rx_queue_map_indir_table_size):
+            self.rx_queue_map_indir_table[0][k] = k % len(self.rxq)
+
+        # configure RX indirection and RSS
+        await self.update_rx_queue_map_indir_table(0)
+
+        # enable queues
+        for q in self.rxq:
+            await q.enable()
+
+        for q in self.txq:
+            await q.enable()
 
         # wait for all writes to complete
         await self.hw_regs.read_dword(0)
 
+        # enable transmit
         await self.ports[0].set_tx_ctrl(MQNIC_PORT_TX_CTRL_EN)
+
+        # enable scheduler
+        await self.sched_blocks[0].activate()
+
+        # enable receive
         await self.ports[0].set_rx_ctrl(MQNIC_PORT_RX_CTRL_EN)
 
         self.port_up = True
@@ -1537,10 +1603,19 @@ class Interface:
             MQNIC_RB_RX_QUEUE_MAP_CH_STRIDE*port + MQNIC_RB_RX_QUEUE_MAP_CH_REG_APP_MASK, val)
 
     async def get_rx_queue_map_indir_table(self, port, index):
-        return await self.rx_queue_map_indir_table[port].read_dword(index*4)
+        return await self.rx_queue_map_indir_table_regs[port].read_dword(index*4)
 
     async def set_rx_queue_map_indir_table(self, port, index, val):
-        await self.rx_queue_map_indir_table[port].write_dword(index*4, val)
+        await self.rx_queue_map_indir_table_regs[port].write_dword(index*4, val)
+
+    async def update_rx_queue_map_indir_table(self, port):
+        await self.set_rx_queue_map_rss_mask(port, 0xffffffff)
+        await self.set_rx_queue_map_app_mask(port, 0)
+
+        for k in range(self.rx_queue_map_indir_table_size):
+            q = self.rxq[self.rx_queue_map_indir_table[port][k]]
+            if q:
+                await self.set_rx_queue_map_indir_table(port, k, q.index)
 
     async def recv(self):
         if not self.pkt_rx_queue:

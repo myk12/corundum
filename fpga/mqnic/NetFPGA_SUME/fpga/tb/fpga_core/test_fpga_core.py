@@ -321,12 +321,6 @@ async def run_test_nic(dut):
     await tb.driver.interfaces[0].open()
     # await tb.driver.interfaces[1].open()
 
-    # enable queues
-    tb.log.info("Enable queues")
-    await tb.driver.interfaces[0].sched_blocks[0].schedulers[0].rb.write_dword(mqnic.MQNIC_RB_SCHED_RR_REG_CTRL, 0x00000001)
-    for k in range(len(tb.driver.interfaces[0].txq)):
-        await tb.driver.interfaces[0].sched_blocks[0].schedulers[0].hw_regs.write_dword(4*k, 0x00000003)
-
     # wait for all writes to complete
     await tb.driver.hw_regs.read_dword(0)
     tb.log.info("Init complete")
@@ -390,26 +384,24 @@ async def run_test_nic(dut):
     tb.loopback_enable = True
 
     for k in range(4):
-        await tb.driver.interfaces[0].set_rx_queue_map_indir_table(0, 0, k)
+        await tb.driver.interfaces[0].set_rx_queue_map_indir_table(0, 0, tb.driver.interfaces[0].rxq[k].index)
 
         await tb.driver.interfaces[0].start_xmit(data, 0)
 
         pkt = await tb.driver.interfaces[0].recv()
 
         tb.log.info("Packet: %s", pkt)
-        assert pkt.rx_checksum == ~scapy.utils.checksum(bytes(pkt.data[14:])) & 0xffff
-        assert pkt.queue == k
+        if tb.driver.interfaces[0].if_feature_rx_csum:
+            assert pkt.rx_checksum == ~scapy.utils.checksum(bytes(pkt.data[14:])) & 0xffff
+        assert pkt.queue == tb.driver.interfaces[0].rxq[k].index
 
     tb.loopback_enable = False
 
-    await tb.driver.interfaces[0].set_rx_queue_map_indir_table(0, 0, 0)
+    await tb.driver.interfaces[0].update_rx_queue_map_indir_table(0)
 
     tb.log.info("Queue mapping RSS mask test")
 
     await tb.driver.interfaces[0].set_rx_queue_map_rss_mask(0, 0x00000003)
-
-    for k in range(4):
-        await tb.driver.interfaces[0].set_rx_queue_map_indir_table(0, k, k)
 
     tb.loopback_enable = True
 
@@ -422,16 +414,20 @@ async def run_test_nic(dut):
         udp = UDP(sport=1, dport=k+0)
         test_pkt = eth / ip / udp / payload
 
-        test_pkt2 = test_pkt.copy()
-        test_pkt2[UDP].chksum = scapy.utils.checksum(bytes(test_pkt2[UDP]))
+        if tb.driver.interfaces[0].if_feature_tx_csum:
+            test_pkt2 = test_pkt.copy()
+            test_pkt2[UDP].chksum = scapy.utils.checksum(bytes(test_pkt2[UDP]))
 
-        await tb.driver.interfaces[0].start_xmit(test_pkt2.build(), 0, 34, 6)
+            await tb.driver.interfaces[0].start_xmit(test_pkt2.build(), 0, 34, 6)
+        else:
+            await tb.driver.interfaces[0].start_xmit(test_pkt.build(), 0)
 
     for k in range(64):
         pkt = await tb.driver.interfaces[0].recv()
 
         tb.log.info("Packet: %s", pkt)
-        assert pkt.rx_checksum == ~scapy.utils.checksum(bytes(pkt.data[14:])) & 0xffff
+        if tb.driver.interfaces[0].if_feature_rx_csum:
+            assert pkt.rx_checksum == ~scapy.utils.checksum(bytes(pkt.data[14:])) & 0xffff
 
         queues.add(pkt.queue)
 
@@ -439,7 +435,7 @@ async def run_test_nic(dut):
 
     tb.loopback_enable = False
 
-    await tb.driver.interfaces[0].set_rx_queue_map_rss_mask(0, 0)
+    await tb.driver.interfaces[0].set_rx_queue_map_rss_mask(0, 0xffffffff)
 
     tb.log.info("Multiple small packets")
 
