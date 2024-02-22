@@ -405,8 +405,8 @@ pcie pcie_hip_inst (
 );
 
 // QSFP-DD interfaces
-localparam QSFP_CNT = 1;
-localparam CH_CNT = MAC_100G ? QSFP_CNT*2 : QSFP_CNT*8;
+localparam QSFPDD_CNT = 1;
+localparam CH_CNT = MAC_100G ? QSFPDD_CNT*2 : QSFPDD_CNT*8;
 
 wire [CH_CNT-1:0]                         qsfp_mac_tx_clk;
 wire [CH_CNT-1:0]                         qsfp_mac_tx_rst;
@@ -606,7 +606,7 @@ fpga_core #(
     .RELEASE_INFO(RELEASE_INFO),
 
     // Board configuration
-    .QSFP_CNT(QSFP_CNT),
+    .QSFPDD_CNT(QSFPDD_CNT),
     .CH_CNT(CH_CNT),
     .PORT_GROUP_SIZE(MAC_100G ? 2 : 8),
 

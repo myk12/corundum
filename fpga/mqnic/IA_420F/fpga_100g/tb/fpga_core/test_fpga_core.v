@@ -44,8 +44,8 @@ module test_fpga_core #
     parameter RELEASE_INFO = 32'h00000000,
 
     // Board configuration
-    parameter QSFP_CNT = 2,
-    parameter CH_CNT = QSFP_CNT*2,
+    parameter QSFPDD_CNT = 1,
+    parameter CH_CNT = QSFPDD_CNT*2,
     parameter PORT_GROUP_SIZE = 2,
 
     // Structural configuration
@@ -421,7 +421,7 @@ fpga_core #(
     .RELEASE_INFO(RELEASE_INFO),
 
     // Board configuration
-    .QSFP_CNT(QSFP_CNT),
+    .QSFPDD_CNT(QSFPDD_CNT),
     .CH_CNT(CH_CNT),
     .PORT_GROUP_SIZE(PORT_GROUP_SIZE),
 
