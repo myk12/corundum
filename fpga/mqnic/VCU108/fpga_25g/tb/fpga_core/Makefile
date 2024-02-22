@@ -174,11 +174,11 @@ export PARAM_RX_CHECKSUM_ENABLE := 1
 export PARAM_LFC_ENABLE := 1
 export PARAM_PFC_ENABLE := $(PARAM_LFC_ENABLE)
 export PARAM_TX_FIFO_DEPTH := 32768
-export PARAM_RX_FIFO_DEPTH := 32768
+export PARAM_RX_FIFO_DEPTH := 65536
 export PARAM_MAX_TX_SIZE := 9214
 export PARAM_MAX_RX_SIZE := 9214
 export PARAM_TX_RAM_SIZE := 32768
-export PARAM_RX_RAM_SIZE := 32768
+export PARAM_RX_RAM_SIZE := 131072
 
 # Application block configuration
 export PARAM_APP_ID := $(shell echo $$((0x00000000)) )

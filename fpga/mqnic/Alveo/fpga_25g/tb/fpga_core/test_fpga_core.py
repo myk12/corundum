@@ -832,7 +832,7 @@ def test_fpga_core(request, qsfp_cnt, if_cnt, ports_per_if, sched_per_if):
     parameters['LFC_ENABLE'] = 1
     parameters['PFC_ENABLE'] = parameters['LFC_ENABLE']
     parameters['TX_FIFO_DEPTH'] = 32768
-    parameters['RX_FIFO_DEPTH'] = 32768
+    parameters['RX_FIFO_DEPTH'] = 65536
     parameters['MAX_TX_SIZE'] = 9214
     parameters['MAX_RX_SIZE'] = 9214
     parameters['TX_RAM_SIZE'] = 32768
