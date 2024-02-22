@@ -58,7 +58,7 @@ This section details PCIe form-factor targets, which interface with a separate h
     250-SoC                  Gen 3 x16  2x QSFP28   4 GB DDR4 2666 (512M x72)        \-
     XUSP3S                   Gen 3 x8   4x QSFP28   2x 4GB DDR4 512M x72, 2x SODIMM  \-
     XUP-P3R                  Gen 3 x16  4x QSFP28   4x DDR4 2400 DIMM (4x x72)       \-
-    IA-420F                  Gen 3 x16  1x QSFP-DD  16 GB DDR4 3200 (2x 1G x72)      \-
+    IA-420F                  Gen 4 x16  1x QSFP-DD  16 GB DDR4 3200 (2x 1G x72)      \-
     DK-DEV-1SMX-H-A          Gen 3 x16  2x QSFP28   8 GB DDR4 2666 (2x 512M x72)     8 GB
     DK-DEV-1SMC-H-A          Gen 3 x16  2x QSFP28   8 GB DDR4 2666 (2x 512M x72)     16 GB
     DK-DEV-1SDX-P-A          Gen 4 x16  2x QSFP28   2x 4GB DDR4 512M x72, 2x DIMM    \-
