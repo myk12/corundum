@@ -3,6 +3,7 @@
 
 import datetime
 from collections import deque
+from decimal import Decimal
 
 import cocotb
 from cocotb.log import SimLog
@@ -414,7 +415,6 @@ class Packet:
     def __init__(self, data=b''):
         self.data = data
         self.queue = None
-        self.timestamp_s = None
         self.timestamp_ns = None
         self.rx_checksum = None
 
@@ -422,7 +422,6 @@ class Packet:
         return (
             f'{type(self).__name__}(data={self.data}, '
             f'queue={self.queue}, '
-            f'timestamp_s={self.timestamp_s}, '
             f'timestamp_ns={self.timestamp_ns}, '
             f'rx_checksum={self.rx_checksum:#06x})'
         )
@@ -1018,7 +1017,7 @@ class Rxq:
         cq_index = cq_cons_ptr & cq.size_mask
 
         while True:
-            cpl_data = struct.unpack_from("<HHHxxLHHLBBHLL", cq.buf, cq_index*cq.stride)
+            cpl_data = struct.unpack_from("<HHHHLHHLBBHLL", cq.buf, cq_index*cq.stride)
             ring_index = cpl_data[1] & ring.size_mask
 
             interface.log.info("CQ %d index %d data: %s", cq.cqn, cq_index, repr(cpl_data))
@@ -1035,9 +1034,8 @@ class Rxq:
             skb = Packet()
             skb.data = pkt[:length]
             skb.queue = ring.index
-            skb.timestamp_ns = cpl_data[3]
-            skb.timestamp_s = cpl_data[4]
-            skb.rx_checksum = cpl_data[5]
+            skb.timestamp_ns = Decimal(cpl_data[5]).scaleb(9) + Decimal(cpl_data[4]) + (Decimal(cpl_data[3]) / Decimal(2**16))
+            skb.rx_checksum = cpl_data[6]
 
             interface.log.info("Packet: %s", skb)
 
