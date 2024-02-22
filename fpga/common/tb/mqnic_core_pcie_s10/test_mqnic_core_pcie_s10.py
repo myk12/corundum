@@ -363,10 +363,8 @@ async def run_test_nic(dut):
     tb.log.info("Init driver")
     await tb.driver.init_pcie_dev(tb.rc.find_device(tb.dev.functions[0].pcie_id))
     for interface in tb.driver.interfaces:
-        await interface.open()
+        await interface.ndevs[0].open()
 
-    # wait for all writes to complete
-    await tb.driver.hw_regs.read_dword(0)
     tb.log.info("Init complete")
 
     tb.log.info("Send and receive single packet")
@@ -374,14 +372,14 @@ async def run_test_nic(dut):
     for interface in tb.driver.interfaces:
         data = bytearray([x % 256 for x in range(1024)])
 
-        await interface.start_xmit(data, 0)
+        await interface.ndevs[0].start_xmit(data, 0)
 
         pkt = await tb.port_mac[interface.index*interface.port_count].tx.recv()
         tb.log.info("Packet: %s", pkt)
 
         await tb.port_mac[interface.index*interface.port_count].rx.send(pkt)
 
-        pkt = await interface.recv()
+        pkt = await interface.ndevs[0].recv()
 
         tb.log.info("Packet: %s", pkt)
         if interface.if_feature_rx_csum:
@@ -399,16 +397,16 @@ async def run_test_nic(dut):
         test_pkt2 = test_pkt.copy()
         test_pkt2[UDP].chksum = scapy.utils.checksum(bytes(test_pkt2[UDP]))
 
-        await tb.driver.interfaces[0].start_xmit(test_pkt2.build(), 0, 34, 6)
+        await tb.driver.interfaces[0].ndevs[0].start_xmit(test_pkt2.build(), 0, 34, 6)
     else:
-        await tb.driver.interfaces[0].start_xmit(test_pkt.build(), 0)
+        await tb.driver.interfaces[0].ndevs[0].start_xmit(test_pkt.build(), 0)
 
     pkt = await tb.port_mac[0].tx.recv()
     tb.log.info("Packet: %s", pkt)
 
     await tb.port_mac[0].rx.send(pkt)
 
-    pkt = await tb.driver.interfaces[0].recv()
+    pkt = await tb.driver.interfaces[0].ndevs[0].recv()
 
     tb.log.info("Packet: %s", pkt)
     if tb.driver.interfaces[0].if_feature_rx_csum:
@@ -422,20 +420,20 @@ async def run_test_nic(dut):
     tb.loopback_enable = True
 
     for k in range(4):
-        await tb.driver.interfaces[0].set_rx_queue_map_indir_table(0, 0, tb.driver.interfaces[0].rxq[k].index)
+        await tb.driver.interfaces[0].set_rx_queue_map_indir_table(0, 0, tb.driver.interfaces[0].ndevs[0].rxq[k].index)
 
-        await tb.driver.interfaces[0].start_xmit(data, 0)
+        await tb.driver.interfaces[0].ndevs[0].start_xmit(data, 0)
 
-        pkt = await tb.driver.interfaces[0].recv()
+        pkt = await tb.driver.interfaces[0].ndevs[0].recv()
 
         tb.log.info("Packet: %s", pkt)
         if tb.driver.interfaces[0].if_feature_rx_csum:
             assert pkt.rx_checksum == ~scapy.utils.checksum(bytes(pkt.data[14:])) & 0xffff
-        assert pkt.queue == tb.driver.interfaces[0].rxq[k].index
+        assert pkt.queue == tb.driver.interfaces[0].ndevs[0].rxq[k].index
 
     tb.loopback_enable = False
 
-    await tb.driver.interfaces[0].update_rx_queue_map_indir_table(0)
+    await tb.driver.interfaces[0].ndevs[0].update_rx_queue_map_indir_table()
 
     tb.log.info("Queue mapping RSS mask test")
 
@@ -456,12 +454,12 @@ async def run_test_nic(dut):
             test_pkt2 = test_pkt.copy()
             test_pkt2[UDP].chksum = scapy.utils.checksum(bytes(test_pkt2[UDP]))
 
-            await tb.driver.interfaces[0].start_xmit(test_pkt2.build(), 0, 34, 6)
+            await tb.driver.interfaces[0].ndevs[0].start_xmit(test_pkt2.build(), 0, 34, 6)
         else:
-            await tb.driver.interfaces[0].start_xmit(test_pkt.build(), 0)
+            await tb.driver.interfaces[0].ndevs[0].start_xmit(test_pkt.build(), 0)
 
     for k in range(64):
-        pkt = await tb.driver.interfaces[0].recv()
+        pkt = await tb.driver.interfaces[0].ndevs[0].recv()
 
         tb.log.info("Packet: %s", pkt)
         if tb.driver.interfaces[0].if_feature_rx_csum:
@@ -484,10 +482,10 @@ async def run_test_nic(dut):
     tb.loopback_enable = True
 
     for p in pkts:
-        await tb.driver.interfaces[0].start_xmit(p, 0)
+        await tb.driver.interfaces[0].ndevs[0].start_xmit(p, 0)
 
     for k in range(count):
-        pkt = await tb.driver.interfaces[0].recv()
+        pkt = await tb.driver.interfaces[0].ndevs[0].recv()
 
         tb.log.info("Packet: %s", pkt)
         assert pkt.data == pkts[k]
@@ -505,10 +503,10 @@ async def run_test_nic(dut):
     tb.loopback_enable = True
 
     for k in range(len(pkts)):
-        await tb.driver.interfaces[0].start_xmit(pkts[k], k % len(tb.driver.interfaces[0].txq))
+        await tb.driver.interfaces[0].ndevs[0].start_xmit(pkts[k], k % tb.driver.interfaces[0].ndevs[0].txq_count)
 
     for k in range(count):
-        pkt = await tb.driver.interfaces[0].recv()
+        pkt = await tb.driver.interfaces[0].ndevs[0].recv()
 
         tb.log.info("Packet: %s", pkt)
         if tb.driver.interfaces[0].if_feature_rx_csum:
@@ -525,10 +523,10 @@ async def run_test_nic(dut):
     tb.loopback_enable = True
 
     for p in pkts:
-        await tb.driver.interfaces[0].start_xmit(p, 0)
+        await tb.driver.interfaces[0].ndevs[0].start_xmit(p, 0)
 
     for k in range(count):
-        pkt = await tb.driver.interfaces[0].recv()
+        pkt = await tb.driver.interfaces[0].ndevs[0].recv()
 
         tb.log.info("Packet: %s", pkt)
         assert pkt.data == pkts[k]
@@ -546,10 +544,10 @@ async def run_test_nic(dut):
     tb.loopback_enable = True
 
     for p in pkts:
-        await tb.driver.interfaces[0].start_xmit(p, 0)
+        await tb.driver.interfaces[0].ndevs[0].start_xmit(p, 0)
 
     for k in range(count):
-        pkt = await tb.driver.interfaces[0].recv()
+        pkt = await tb.driver.interfaces[0].ndevs[0].recv()
 
         tb.log.info("Packet: %s", pkt)
         assert pkt.data == pkts[k]
@@ -568,10 +566,10 @@ async def run_test_nic(dut):
         tb.loopback_enable = True
 
         for k, p in enumerate(pkts):
-            await tb.driver.interfaces[k % len(tb.driver.interfaces)].start_xmit(p, 0)
+            await tb.driver.interfaces[k % len(tb.driver.interfaces)].ndevs[0].start_xmit(p, 0)
 
         for k in range(count):
-            pkt = await tb.driver.interfaces[k % len(tb.driver.interfaces)].recv()
+            pkt = await tb.driver.interfaces[k % len(tb.driver.interfaces)].ndevs[0].recv()
 
             tb.log.info("Packet: %s", pkt)
             assert pkt.data == pkts[k]
@@ -580,21 +578,12 @@ async def run_test_nic(dut):
 
         tb.loopback_enable = False
 
-    if len(tb.driver.interfaces[0].sched_blocks) > 1:
-        tb.log.info("All interface 0 scheduler blocks")
+    if len(tb.driver.interfaces[0].ndevs) > 1:
+        tb.log.info("All interface 0 netdevs")
 
-        for block in tb.driver.interfaces[0].sched_blocks:
-            await block.schedulers[0].set_ctrl(1)
-            await block.interface.set_rx_queue_map_rss_mask(block.index, 0x00000000)
-            await block.interface.set_rx_queue_map_indir_table(block.index, 0, block.interface.rxq[block.index].index)
-            for k in range(len(block.interface.txq)):
-                if k % len(block.interface.sched_blocks) == block.index:
-                    await block.schedulers[0].hw_regs.write_dword(4*k, 0x00000003)
-                else:
-                    await block.schedulers[0].hw_regs.write_dword(4*k, 0x00000000)
-
-            await block.interface.ports[block.index].set_tx_ctrl(mqnic.MQNIC_PORT_TX_CTRL_EN)
-            await block.interface.ports[block.index].set_rx_ctrl(mqnic.MQNIC_PORT_RX_CTRL_EN)
+        for ndev in tb.driver.interfaces[0].ndevs:
+            if not ndev.port_up:
+                await ndev.open()
 
         count = 64
 
@@ -605,25 +594,17 @@ async def run_test_nic(dut):
         queues = set()
 
         for k, p in enumerate(pkts):
-            await tb.driver.interfaces[0].start_xmit(p, k % len(tb.driver.interfaces[0].sched_blocks))
+            await tb.driver.interfaces[0].ndevs[k % len(tb.driver.interfaces[0].ndevs)].start_xmit(p, 0)
 
         for k in range(count):
-            pkt = await tb.driver.interfaces[0].recv()
+            pkt = await tb.driver.interfaces[0].ndevs[k % len(tb.driver.interfaces[0].ndevs)].recv()
 
             tb.log.info("Packet: %s", pkt)
-            # assert pkt.data == pkts[k]
+            assert pkt.data == pkts[k]
             if tb.driver.interfaces[0].if_feature_rx_csum:
                 assert pkt.rx_checksum == ~scapy.utils.checksum(bytes(pkt.data[14:])) & 0xffff
 
-            queues.add(pkt.queue)
-
-        assert len(queues) == len(tb.driver.interfaces[0].sched_blocks)
-
         tb.loopback_enable = False
-
-        for block in tb.driver.interfaces[0].sched_blocks[1:]:
-            await block.schedulers[0].set_ctrl(0)
-        await tb.driver.interfaces[0].set_rx_queue_map_rss_mask(0, 0xffffffff)
 
     if tb.driver.interfaces[0].if_feature_lfc:
         tb.log.info("Test LFC pause frame RX")
@@ -642,10 +623,10 @@ async def run_test_nic(dut):
         tb.loopback_enable = True
 
         for p in pkts:
-            await tb.driver.interfaces[0].start_xmit(p, 0)
+            await tb.driver.interfaces[0].ndevs[0].start_xmit(p, 0)
 
         for k in range(count):
-            pkt = await tb.driver.interfaces[0].recv()
+            pkt = await tb.driver.interfaces[0].ndevs[0].recv()
 
             tb.log.info("Packet: %s", pkt)
             assert pkt.data == pkts[k]

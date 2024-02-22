@@ -15,7 +15,7 @@ import struct
 
 MQNIC_MAX_EQ   = 1
 MQNIC_MAX_TXQ  = 32
-MQNIC_MAX_RXQ  = 8
+MQNIC_MAX_RXQ  = 32
 MQNIC_MAX_CQ   = MQNIC_MAX_TXQ*2
 
 # Register blocks
@@ -534,9 +534,6 @@ class Eq:
         await self.hw_regs.write_dword(MQNIC_EQ_CTRL_STATUS_REG, MQNIC_EQ_CMD_SET_ARM | 1)
 
     async def process_eq(self):
-        if not self.interface.port_up:
-            return
-
         self.log.info("Process EQ")
 
         eq_cons_ptr = self.cons_ptr
@@ -676,6 +673,7 @@ class Txq:
         self.buf_dma = 0
         self.buf = None
 
+        self.ndev = None
         self.cq = None
 
         self.prod_ptr = 0
@@ -688,7 +686,7 @@ class Txq:
 
         self.hw_regs = None
 
-    async def open(self, cq, size, desc_block_size):
+    async def open(self, ndev, cq, size, desc_block_size):
         if self.hw_regs:
             raise Exception("Already open")
 
@@ -714,6 +712,7 @@ class Txq:
         self.prod_ptr = 0
         self.cons_ptr = 0
 
+        self.ndev = ndev
         self.cq = cq
         self.cq.src_ring = self
         self.cq.handler = Txq.process_tx_cq
@@ -740,6 +739,7 @@ class Txq:
             self.cq.src_ring = None
             self.cq.handler = None
 
+        self.ndev = None
         self.cq = None
 
         self.hw_regs = None
@@ -790,12 +790,14 @@ class Txq:
     @staticmethod
     async def process_tx_cq(cq):
         interface = cq.interface
+        ndev = cq.src_ring.ndev
 
         interface.log.info("Process CQ %d for TXQ %d (interface %d)", cq.cqn, cq.src_ring.index, interface.index)
 
         ring = cq.src_ring
 
-        if not interface.port_up:
+        if not ndev.port_up:
+            interface.log.info("Port not up, aborting")
             return
 
         # process completion queue
@@ -858,6 +860,7 @@ class Rxq:
         self.buf_dma = 0
         self.buf = None
 
+        self.ndev = None
         self.cq = None
 
         self.prod_ptr = 0
@@ -868,7 +871,7 @@ class Rxq:
 
         self.hw_regs = None
 
-    async def open(self, cq, size, desc_block_size):
+    async def open(self, ndev, cq, size, desc_block_size):
         if self.hw_regs:
             raise Exception("Already open")
 
@@ -894,6 +897,7 @@ class Rxq:
         self.prod_ptr = 0
         self.cons_ptr = 0
 
+        self.ndev = ndev
         self.cq = cq
         self.cq.src_ring = self
         self.cq.handler = Rxq.process_rx_cq
@@ -922,6 +926,7 @@ class Rxq:
             self.cq.src_ring = None
             self.cq.handler = None
 
+        self.ndev = None
         self.cq = None
 
         self.hw_regs = None
@@ -998,12 +1003,14 @@ class Rxq:
     @staticmethod
     async def process_rx_cq(cq):
         interface = cq.interface
+        ndev = cq.src_ring.ndev
 
         interface.log.info("Process CQ %d for RXQ %d (interface %d)", cq.cqn, cq.src_ring.index, interface.index)
 
         ring = cq.src_ring
 
-        if not interface.port_up:
+        if not ndev.port_up:
+            interface.log.info("Port not up, aborting")
             return
 
         # process completion queue
@@ -1034,8 +1041,8 @@ class Rxq:
 
             interface.log.info("Packet: %s", skb)
 
-            interface.pkt_rx_queue.append(skb)
-            interface.pkt_rx_sync.set()
+            ndev.pkt_rx_queue.append(skb)
+            ndev.pkt_rx_sync.set()
 
             ring.free_desc(ring_index)
 
@@ -1098,23 +1105,35 @@ class SchedulerRoundRobin(BaseScheduler):
         self.queue_count = await self.rb.read_dword(MQNIC_RB_SCHED_RR_REG_CH_COUNT)
         self.queue_stride = await self.rb.read_dword(MQNIC_RB_SCHED_RR_REG_CH_STRIDE)
 
+        self.queue_count = min(self.queue_count, MQNIC_MAX_TXQ)
+
     async def enable(self):
         await self.set_ctrl(1)
-
-        for q in self.port.interface.txq:
-            await self.hw_regs.write_dword(q.index*4, 0x00000003)
 
     async def disable(self):
         await self.set_ctrl(0)
 
-        for q in self.port.interface.txq:
-            await self.hw_regs.write_dword(q.index*4, 0x00000000)
+    async def enable_queue(self, queue):
+        await self.set_queue_ctrl(queue, 0x00000003)
+
+    async def disable_queue(self, queue):
+        await self.set_queue_ctrl(queue, 0x00000000)
+
+    async def disable_all_queues(self):
+        for k in range(self.queue_count):
+            await self.disable_queue(k)
 
     async def get_ctrl(self):
         return await self.rb.read_dword(MQNIC_RB_SCHED_RR_REG_CTRL)
 
     async def set_ctrl(self, val):
         await self.rb.write_dword(MQNIC_RB_SCHED_RR_REG_CTRL, val)
+
+    async def get_queue_ctrl(self, queue):
+        return await self.hw_regs.read_dword(queue*4)
+
+    async def set_queue_ctrl(self, queue, val):
+        await self.hw_regs.write_dword(queue*4, val)
 
 
 class SchedulerControlTdma(BaseScheduler):
@@ -1179,6 +1198,213 @@ class SchedulerBlock:
     async def deactivate(self):
         for sched in self.schedulers:
             await sched.disable()
+
+
+class NetDev:
+    def __init__(self, interface, index, port, sched_block):
+        self.interface = interface
+        self.log = interface.log
+        self.driver = interface.driver
+        self.index = index
+        self.port_up = False
+
+        self.port = port
+        self.sched_block = sched_block
+
+        self.txq_count = min(interface.txq_res.get_count(), 4)
+        self.rxq_count = min(interface.rxq_res.get_count(), 4)
+
+        self.rx_queue_map_indir_table_size = interface.rx_queue_map_indir_table_size
+        self.rx_queue_map_indir_table = [k % self.rxq_count for k in range(self.rx_queue_map_indir_table_size)]
+
+        self.txq = []
+        self.rxq = []
+
+        self.tx_ring_size = 1024
+        self.rx_ring_size = 1024
+
+        self.pkt_rx_queue = deque()
+        self.pkt_rx_sync = Event()
+
+    async def init(self):
+        pass
+
+    async def open(self):
+        if self.port_up:
+            return
+
+        for k in range(self.rxq_count):
+            cq = Cq(self.interface)
+            await cq.open(self.interface.eq[k % len(self.interface.eq)], 1024)
+            await cq.arm()
+            rxq = Rxq(self.interface)
+            await rxq.open(self, cq, self.rx_ring_size, 4)
+            self.rxq.append(rxq)
+
+        for k in range(self.txq_count):
+            cq = Cq(self.interface)
+            await cq.open(self.interface.eq[k % len(self.interface.eq)], 1024)
+            await cq.arm()
+            txq = Txq(self.interface)
+            await txq.open(self, cq, self.tx_ring_size, 4)
+            self.txq.append(txq)
+
+        for k in range(self.rx_queue_map_indir_table_size):
+            self.rx_queue_map_indir_table[k] = k % self.rxq_count
+
+        # configure RX indirection and RSS
+        await self.update_rx_queue_map_indir_table()
+
+        # enable queues
+        for q in self.rxq:
+            await q.enable()
+
+        for q in self.txq:
+            await q.enable()
+
+        # enable transmit
+        await self.port.set_tx_ctrl(MQNIC_PORT_TX_CTRL_EN)
+
+        # configure scheduler
+        for queue in range(self.sched_block.schedulers[0].queue_count):
+            found = False
+            for q in self.txq:
+                if queue == q.index:
+                    found = True
+                    break
+            if found:
+                await self.sched_block.schedulers[0].enable_queue(queue)
+            else:
+                await self.sched_block.schedulers[0].disable_queue(queue)
+
+        # enable scheduler
+        await self.sched_block.activate()
+
+        # enable receive
+        await self.port.set_rx_ctrl(MQNIC_PORT_RX_CTRL_EN)
+
+        # wait for all writes to complete
+        await self.interface.hw_regs.read_dword(0)
+
+        self.port_up = True
+
+    async def close(self):
+        if not self.port_up:
+            return
+
+        self.port_up = False
+
+        await self.ports[0].set_rx_ctrl(0)
+
+        for q in self.txq:
+            q.disable()
+
+        for q in self.rxq:
+            q.disable()
+
+        # wait for all writes to complete
+        await self.hw_regs.read_dword(0)
+
+        for q in self.txq:
+            cq = q.cq
+            await q.free_buf()
+            await q.close()
+            await cq.close()
+
+        for q in self.rxq:
+            cq = q.cq
+            await q.free_buf()
+            await q.close()
+            await cq.close()
+
+        self.txq = []
+        self.rxq = []
+
+        await self.ports[0].set_tx_ctrl(0)
+
+    async def start_xmit(self, skb, tx_ring=None, csum_start=None, csum_offset=None):
+        if not self.port_up:
+            return
+
+        data = bytes(skb)
+
+        assert len(data) < self.interface.max_tx_mtu
+
+        if tx_ring is not None:
+            ring_index = tx_ring
+        else:
+            ring_index = 0
+
+        ring = self.txq[ring_index]
+
+        while True:
+            # check for space in ring
+            if ring.prod_ptr - ring.cons_ptr < ring.full_size:
+                break
+
+            # wait for space
+            ring.clean_event.clear()
+            await ring.clean_event.wait()
+
+        index = ring.prod_ptr & ring.size_mask
+
+        ring.packets += 1
+        ring.bytes += len(data)
+
+        pkt = self.driver.alloc_pkt()
+
+        assert not ring.tx_info[index]
+        ring.tx_info[index] = pkt
+
+        # put data in packet buffer
+        pkt[10:len(data)+10] = data
+
+        csum_cmd = 0
+
+        if csum_start is not None and csum_offset is not None:
+            csum_cmd = 0x8000 | (csum_offset << 8) | csum_start
+
+        length = len(data)
+        ptr = pkt.get_absolute_address(0)+10
+        offset = 0
+
+        # write descriptors
+        seg = min(length-offset, 42) if ring.desc_block_size > 1 else length-offset
+        struct.pack_into("<HHLQ", ring.buf, index*ring.stride, 0, csum_cmd, seg, ptr+offset if seg else 0)
+        offset += seg
+        for k in range(1, ring.desc_block_size):
+            seg = min(length-offset, 4096) if k < ring.desc_block_size-1 else length-offset
+            struct.pack_into("<4xLQ", ring.buf, index*ring.stride+k*MQNIC_DESC_SIZE, seg, ptr+offset if seg else 0)
+            offset += seg
+
+        ring.prod_ptr += 1
+
+        await ring.write_prod_ptr()
+
+    async def update_rx_queue_map_indir_table(self):
+        await self.interface.set_rx_queue_map_rss_mask(self.port.index, 0xffffffff)
+        await self.interface.set_rx_queue_map_app_mask(self.port.index, 0)
+
+        for k in range(self.rx_queue_map_indir_table_size):
+            q = self.rxq[self.rx_queue_map_indir_table[k]]
+            if q:
+                await self.interface.set_rx_queue_map_indir_table(self.port.index, k, q.index)
+
+    async def recv(self):
+        if not self.pkt_rx_queue:
+            self.pkt_rx_sync.clear()
+            await self.pkt_rx_sync.wait()
+        return self.recv_nowait()
+
+    def recv_nowait(self):
+        if self.pkt_rx_queue:
+            return self.pkt_rx_queue.popleft()
+        return None
+
+    async def wait(self):
+        if not self.pkt_rx_queue:
+            self.pkt_rx_sync.clear()
+            await self.pkt_rx_sync.wait()
 
 
 class Port:
@@ -1251,7 +1477,6 @@ class Interface:
         self.index = index
         self.hw_regs = hw_regs
         self.csr_hw_regs = hw_regs.create_window(driver.if_csr_offset)
-        self.port_up = False
 
         self.reg_blocks = RegBlockList()
         self.if_ctrl_rb = None
@@ -1282,20 +1507,16 @@ class Interface:
         self.sched_block_count = None
 
         self.rx_queue_map_indir_table_size = None
-        self.rx_queue_map_indir_table = []
+        self.rx_queue_map_indir_table_regs = []
 
         self.eq = []
 
-        self.txq = []
-        self.rxq = []
         self.ports = []
         self.sched_blocks = []
+        self.ndevs = []
 
         self.interrupt_running = False
         self.interrupt_pending = 0
-
-        self.pkt_rx_queue = deque()
-        self.pkt_rx_sync = Event()
 
     async def init(self):
         # Read ID registers
@@ -1442,145 +1663,14 @@ class Interface:
             self.eq.append(eq)
             await eq.arm()
 
-        self.txq = []
-        self.rxq = []
+        # create netdevs
+        for k in range(self.port_count):
+            ndev = NetDev(self, k, self.ports[k], self.sched_blocks[k])
+            await ndev.init()
+            self.ndevs.append(ndev)
 
         # wait for all writes to complete
         await self.hw_regs.read_dword(0)
-
-    async def open(self):
-        for k in range(self.rxq_res.get_count()):
-            cq = Cq(self)
-            await cq.open(self.eq[k % len(self.eq)], 1024)
-            await cq.arm()
-            rxq = Rxq(self)
-            await rxq.open(cq, 1024, 4)
-            self.rxq.append(rxq)
-
-        for k in range(self.txq_res.get_count()):
-            cq = Cq(self)
-            await cq.open(self.eq[k % len(self.eq)], 1024)
-            await cq.arm()
-            txq = Txq(self)
-            await txq.open(cq, 1024, 4)
-            self.txq.append(txq)
-
-        for k in range(self.rx_queue_map_indir_table_size):
-            self.rx_queue_map_indir_table[0][k] = k % len(self.rxq)
-
-        # configure RX indirection and RSS
-        await self.update_rx_queue_map_indir_table(0)
-
-        # enable queues
-        for q in self.rxq:
-            await q.enable()
-
-        for q in self.txq:
-            await q.enable()
-
-        # wait for all writes to complete
-        await self.hw_regs.read_dword(0)
-
-        # enable transmit
-        await self.ports[0].set_tx_ctrl(MQNIC_PORT_TX_CTRL_EN)
-
-        # enable scheduler
-        await self.sched_blocks[0].activate()
-
-        # enable receive
-        await self.ports[0].set_rx_ctrl(MQNIC_PORT_RX_CTRL_EN)
-
-        self.port_up = True
-
-    async def close(self):
-        self.port_up = False
-
-        await self.ports[0].set_rx_ctrl(0)
-
-        for q in self.txq:
-            q.disable()
-
-        for q in self.rxq:
-            q.disable()
-
-        # wait for all writes to complete
-        await self.hw_regs.read_dword(0)
-
-        for q in self.txq:
-            cq = q.cq
-            await q.free_buf()
-            await q.close()
-            await cq.close()
-
-        for q in self.rxq:
-            cq = q.cq
-            await q.free_buf()
-            await q.close()
-            await cq.close()
-
-        self.txq = []
-        self.rxq = []
-
-        await self.ports[0].set_tx_ctrl(0)
-
-    async def start_xmit(self, skb, tx_ring=None, csum_start=None, csum_offset=None):
-        if not self.port_up:
-            return
-
-        data = bytes(skb)
-
-        assert len(data) < self.max_tx_mtu
-
-        if tx_ring is not None:
-            ring_index = tx_ring
-        else:
-            ring_index = 0
-
-        ring = self.txq[ring_index]
-
-        while True:
-            # check for space in ring
-            if ring.prod_ptr - ring.cons_ptr < ring.full_size:
-                break
-
-            # wait for space
-            ring.clean_event.clear()
-            await ring.clean_event.wait()
-
-        index = ring.prod_ptr & ring.size_mask
-
-        ring.packets += 1
-        ring.bytes += len(data)
-
-        pkt = self.driver.alloc_pkt()
-
-        assert not ring.tx_info[index]
-        ring.tx_info[index] = pkt
-
-        # put data in packet buffer
-        pkt[10:len(data)+10] = data
-
-        csum_cmd = 0
-
-        if csum_start is not None and csum_offset is not None:
-            csum_cmd = 0x8000 | (csum_offset << 8) | csum_start
-
-        length = len(data)
-        ptr = pkt.get_absolute_address(0)+10
-        offset = 0
-
-        # write descriptors
-        seg = min(length-offset, 42) if ring.desc_block_size > 1 else length-offset
-        struct.pack_into("<HHLQ", ring.buf, index*ring.stride, 0, csum_cmd, seg, ptr+offset if seg else 0)
-        offset += seg
-        for k in range(1, ring.desc_block_size):
-            seg = min(length-offset, 4096) if k < ring.desc_block_size-1 else length-offset
-            struct.pack_into("<4xLQ", ring.buf, index*ring.stride+k*MQNIC_DESC_SIZE, seg, ptr+offset if seg else 0)
-            offset += seg
-
-        ring.prod_ptr += 1
-
-        await ring.write_prod_ptr()
 
     async def set_mtu(self, mtu):
         await self.if_ctrl_rb.write_dword(MQNIC_RB_IF_CTRL_REG_TX_MTU, mtu)
@@ -1607,31 +1697,6 @@ class Interface:
 
     async def set_rx_queue_map_indir_table(self, port, index, val):
         await self.rx_queue_map_indir_table_regs[port].write_dword(index*4, val)
-
-    async def update_rx_queue_map_indir_table(self, port):
-        await self.set_rx_queue_map_rss_mask(port, 0xffffffff)
-        await self.set_rx_queue_map_app_mask(port, 0)
-
-        for k in range(self.rx_queue_map_indir_table_size):
-            q = self.rxq[self.rx_queue_map_indir_table[port][k]]
-            if q:
-                await self.set_rx_queue_map_indir_table(port, k, q.index)
-
-    async def recv(self):
-        if not self.pkt_rx_queue:
-            self.pkt_rx_sync.clear()
-            await self.pkt_rx_sync.wait()
-        return self.recv_nowait()
-
-    def recv_nowait(self):
-        if self.pkt_rx_queue:
-            return self.pkt_rx_queue.popleft()
-        return None
-
-    async def wait(self):
-        if not self.pkt_rx_queue:
-            self.pkt_rx_sync.clear()
-            await self.pkt_rx_sync.wait()
 
 
 class Interrupt:
