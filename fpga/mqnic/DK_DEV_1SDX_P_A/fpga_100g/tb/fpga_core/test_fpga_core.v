@@ -324,7 +324,7 @@ wire [CH_CNT*8-1:0]                       qsfp_mac_rx_pfc_req;
 
 generate
 
-for (n = 0; n < QSFP_CNT; n = n + 1) begin : ch
+for (n = 0; n < CH_CNT; n = n + 1) begin : ch
 
     wire                               ch_mac_tx_clk;
     wire                               ch_mac_tx_rst;
