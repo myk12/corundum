@@ -799,7 +799,7 @@ def test_fpga_core(request):
     parameters['RX_CHECKSUM_ENABLE'] = 1
     parameters['LFC_ENABLE'] = 1
     parameters['PFC_ENABLE'] = parameters['LFC_ENABLE']
-    parameters['TX_FIFO_DEPTH'] = 32768
+    parameters['TX_FIFO_DEPTH'] = 131072
     parameters['RX_FIFO_DEPTH'] = 131072
     parameters['MAX_TX_SIZE'] = 9214
     parameters['MAX_RX_SIZE'] = 9214
