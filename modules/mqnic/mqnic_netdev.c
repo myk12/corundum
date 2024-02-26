@@ -161,6 +161,23 @@ int mqnic_start_port(struct net_device *ndev)
 
 	mqnic_port_set_tx_ctrl(priv->port, MQNIC_PORT_TX_CTRL_EN);
 
+	// configure scheduler
+	down_read(&priv->txq_table_sem);
+	radix_tree_for_each_slot(slot, &priv->txq_table, &iter, 0) {
+		struct mqnic_ring *q = (struct mqnic_ring *)*slot;
+
+		mqnic_scheduler_queue_enable(priv->sched_block->sched[0], q->index);
+	}
+	up_read(&priv->txq_table_sem);
+
+	// configure scheduler flow control
+	mqnic_scheduler_channel_set_pkt_budget(priv->sched_block->sched[0], 0, 1);
+	mqnic_scheduler_channel_set_data_budget(priv->sched_block->sched[0], 0, ndev->mtu + ETH_HLEN);
+	mqnic_scheduler_channel_set_pkt_limit(priv->sched_block->sched[0], 0, 0xFFFF);
+	mqnic_scheduler_channel_set_data_limit(priv->sched_block->sched[0], 0, iface->tx_fifo_depth);
+
+	mqnic_scheduler_channel_enable(priv->sched_block->sched[0], 0);
+
 	// enable scheduler
 	mqnic_activate_sched_block(priv->sched_block);
 
@@ -211,6 +228,18 @@ void mqnic_stop_port(struct net_device *ndev)
 	spin_lock_bh(&priv->stats_lock);
 	mqnic_update_stats(ndev);
 	spin_unlock_bh(&priv->stats_lock);
+
+	// configure scheduler
+	down_read(&priv->txq_table_sem);
+	radix_tree_for_each_slot(slot, &priv->txq_table, &iter, 0) {
+		struct mqnic_ring *q = (struct mqnic_ring *)*slot;
+
+		mqnic_scheduler_queue_disable(priv->sched_block->sched[0], q->index);
+	}
+	up_read(&priv->txq_table_sem);
+
+	// configure scheduler flow control
+	mqnic_scheduler_channel_disable(priv->sched_block->sched[0], 0);
 
 	// disable scheduler
 	mqnic_deactivate_sched_block(priv->sched_block);

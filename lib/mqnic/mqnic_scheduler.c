@@ -32,8 +32,14 @@ struct mqnic_sched *mqnic_sched_open(struct mqnic_sched_block *block, int index,
 
     sched->type = rb->type;
     sched->offset = mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_OFFSET);
-    sched->channel_count = mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_COUNT);
-    sched->channel_stride = mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE);
+    sched->queue_count = mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_QUEUE_COUNT);
+    sched->queue_stride = mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_QUEUE_STRIDE);
+
+    uint32_t val = mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CFG);
+    sched->tc_count = val & 0xff;
+    sched->port_count = (val >> 8) & 0xff;
+    sched->channel_count = sched->tc_count * sched->port_count;
+    sched->fc_scale = 1 << ((val >> 16) & 0xff);
 
     return sched;
 

@@ -14,6 +14,10 @@
 
 #define mqnic_reg_read32(base, reg) (((volatile uint32_t *)(base))[(reg)/4])
 #define mqnic_reg_write32(base, reg, val) (((volatile uint32_t *)(base))[(reg)/4]) = val
+#define mqnic_reg_read16(base, reg) (((volatile uint16_t *)(base))[(reg)/2])
+#define mqnic_reg_write16(base, reg, val) (((volatile uint16_t *)(base))[(reg)/2]) = val
+#define mqnic_reg_read8(base, reg) (((volatile uint8_t *)(base))[reg])
+#define mqnic_reg_write8(base, reg, val) (((volatile uint8_t *)(base))[reg]) = val
 
 struct mqnic;
 
@@ -34,8 +38,13 @@ struct mqnic_sched {
 
     uint32_t type;
     uint32_t offset;
-    uint32_t channel_count;
-    uint32_t channel_stride;
+    uint32_t queue_count;
+    uint32_t queue_stride;
+
+    int tc_count;
+    int port_count;
+    int channel_count;
+    int fc_scale;
 
     size_t regs_size;
     volatile uint8_t *regs;

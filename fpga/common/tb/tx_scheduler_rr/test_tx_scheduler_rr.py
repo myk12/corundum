@@ -102,6 +102,37 @@ class TB(object):
         await RisingEdge(self.dut.clk)
 
 
+MQNIC_RB_SCHED_RR_REG_OFFSET        = 0x0C
+MQNIC_RB_SCHED_RR_REG_QUEUE_COUNT   = 0x10
+MQNIC_RB_SCHED_RR_REG_QUEUE_STRIDE  = 0x14
+MQNIC_RB_SCHED_RR_REG_CTRL          = 0x18
+MQNIC_RB_SCHED_RR_REG_CFG           = 0x1C
+MQNIC_RB_SCHED_RR_REG_CH_STRIDE     = 0x10
+MQNIC_RB_SCHED_RR_REG_CH0_CTRL      = 0x20
+MQNIC_RB_SCHED_RR_REG_CH0_FC1       = 0x24
+MQNIC_RB_SCHED_RR_REG_CH0_FC1_DEST  = 0x24
+MQNIC_RB_SCHED_RR_REG_CH0_FC1_PB    = 0x26
+MQNIC_RB_SCHED_RR_REG_CH0_FC2       = 0x28
+MQNIC_RB_SCHED_RR_REG_CH0_FC2_DB    = 0x28
+MQNIC_RB_SCHED_RR_REG_CH0_FC2_PL    = 0x2A
+MQNIC_RB_SCHED_RR_REG_CH0_FC3       = 0x2C
+MQNIC_RB_SCHED_RR_REG_CH0_FC3_DL    = 0x2C
+
+MQNIC_SCHED_RR_PORT_TC         = (0x7 << 0)
+MQNIC_SCHED_RR_PORT_EN         = (1 << 3)
+MQNIC_SCHED_RR_PORT_PAUSE      = (1 << 4)
+MQNIC_SCHED_RR_PORT_SCHEDULED  = (1 << 5)
+MQNIC_SCHED_RR_QUEUE_EN        = (1 << 6)
+MQNIC_SCHED_RR_QUEUE_PAUSE     = (1 << 7)
+MQNIC_SCHED_RR_QUEUE_ACTIVE    = (1 << 14)
+
+MQNIC_SCHED_RR_CMD_SET_PORT_TC       = 0x80010000
+MQNIC_SCHED_RR_CMD_SET_PORT_ENABLE   = 0x80020000
+MQNIC_SCHED_RR_CMD_SET_PORT_PAUSE    = 0x80030000
+MQNIC_SCHED_RR_CMD_SET_QUEUE_ENABLE  = 0x40000100
+MQNIC_SCHED_RR_CMD_SET_QUEUE_PAUSE   = 0x40000200
+
+
 async def run_test_config(dut):
 
     tb = TB(dut)
@@ -109,15 +140,24 @@ async def run_test_config(dut):
     await tb.reset()
 
     # enable
-    assert await tb.rd_ctrl_reg(0x18) == 0
-    await tb.wr_ctrl_reg(0x18, 1)
-    assert await tb.rd_ctrl_reg(0x18) == 1
+    assert await tb.rd_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CTRL) == 0
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CTRL, 1)
+    assert await tb.rd_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CTRL) == 1
+
+    val = await tb.rd_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_CTRL)
+    tb.log.info("CTRL: %08x", val)
+    val = await tb.rd_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_FC1)
+    tb.log.info("FC1: %08x", val)
+    val = await tb.rd_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_FC2)
+    tb.log.info("FC2: %08x", val)
+    val = await tb.rd_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_FC3)
+    tb.log.info("FC3: %08x", val)
 
     assert await tb.axil_master.read_dword(0*4) == 0
-
-    await tb.axil_master.write_dword(0*4, 3)
-
-    assert await tb.axil_master.read_dword(0*4) == 3
+    await tb.axil_master.write_dword(0*4, MQNIC_SCHED_RR_CMD_SET_PORT_TC | (0 << 8) | 0)
+    await tb.axil_master.write_dword(0*4, MQNIC_SCHED_RR_CMD_SET_PORT_ENABLE | (0 << 8) | 1)
+    await tb.axil_master.write_dword(0*4, MQNIC_SCHED_RR_CMD_SET_QUEUE_ENABLE | 1)
+    assert await tb.axil_master.read_dword(0*4) == 0x00000048
 
     await RisingEdge(dut.clk)
     await RisingEdge(dut.clk)
@@ -133,9 +173,14 @@ async def run_test_single(dut, idle_inserter=None, backpressure_inserter=None):
     tb.set_backpressure_generator(backpressure_inserter)
 
     dut.enable.value = 1
-    await tb.wr_ctrl_reg(0x18, 1)
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_FC2, (25 << 16) | ((1536+63)//64))
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_FC3, ((1536+63)//64)*32)
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_CTRL, 1)
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CTRL, 1)
 
-    await tb.axil_master.write_dword(0*4, 3)
+    await tb.axil_master.write_dword(0*4, MQNIC_SCHED_RR_CMD_SET_PORT_TC | (0 << 8) | 0)
+    await tb.axil_master.write_dword(0*4, MQNIC_SCHED_RR_CMD_SET_PORT_ENABLE | (0 << 8) | 1)
+    await tb.axil_master.write_dword(0*4, MQNIC_SCHED_RR_CMD_SET_QUEUE_ENABLE | 1)
 
     await tb.doorbell_source.send(DoorbellTransaction(queue=0))
 
@@ -176,6 +221,9 @@ async def run_test_single(dut, idle_inserter=None, backpressure_inserter=None):
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
 
+    for k in range(200):
+        await RisingEdge(dut.clk)
+
     await RisingEdge(dut.clk)
     await RisingEdge(dut.clk)
 
@@ -190,10 +238,15 @@ async def run_test_multiple(dut, idle_inserter=None, backpressure_inserter=None)
     tb.set_backpressure_generator(backpressure_inserter)
 
     dut.enable.value = 1
-    await tb.wr_ctrl_reg(0x18, 1)
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_FC2, (25 << 16) | ((1536+63)//64))
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_FC3, ((1536+63)//64)*32)
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_CTRL, 1)
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CTRL, 1)
 
     for k in range(10):
-        await tb.axil_master.write_dword(k*4, 3)
+        await tb.axil_master.write_dword(k*4, MQNIC_SCHED_RR_CMD_SET_PORT_TC | (0 << 8) | 0)
+        await tb.axil_master.write_dword(k*4, MQNIC_SCHED_RR_CMD_SET_PORT_ENABLE | (0 << 8) | 1)
+        await tb.axil_master.write_dword(k*4, MQNIC_SCHED_RR_CMD_SET_QUEUE_ENABLE | 1)
 
     for k in range(10):
         await tb.doorbell_source.send(DoorbellTransaction(queue=k))
@@ -246,9 +299,14 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
     tb.set_backpressure_generator(backpressure_inserter)
 
     dut.enable.value = 1
-    await tb.wr_ctrl_reg(0x18, 1)
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_FC2, (25 << 16) | ((1536+63)//64))
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_FC3, ((1536+63)//64)*32)
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CH0_CTRL, 1)
+    await tb.wr_ctrl_reg(MQNIC_RB_SCHED_RR_REG_CTRL, 1)
 
-    await tb.axil_master.write_dword(0*4, 3)
+    await tb.axil_master.write_dword(0*4, MQNIC_SCHED_RR_CMD_SET_PORT_TC | (0 << 8) | 0)
+    await tb.axil_master.write_dword(0*4, MQNIC_SCHED_RR_CMD_SET_PORT_ENABLE | (0 << 8) | 1)
+    await tb.axil_master.write_dword(0*4, MQNIC_SCHED_RR_CMD_SET_QUEUE_ENABLE | 1)
 
     await tb.doorbell_source.send(DoorbellTransaction(queue=0))
 
@@ -393,6 +451,8 @@ def test_tx_scheduler_rr(request):
     parameters['PIPELINE'] = 2
     parameters['SCHED_CTRL_ENABLE'] = 1
     parameters['REQ_DEST_DEFAULT'] = 0
+    parameters['MAX_TX_SIZE'] = 9216
+    parameters['FC_SCALE'] = 64
 
     parameters['AXIL_BASE_ADDR'] = 0
     parameters['AXIL_DATA_WIDTH'] = 32

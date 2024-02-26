@@ -23,6 +23,8 @@ module tx_scheduler_rr #
     parameter PIPELINE = 2,
     parameter SCHED_CTRL_ENABLE = 0,
     parameter REQ_DEST_DEFAULT = 0,
+    parameter MAX_TX_SIZE = 9216,
+    parameter FC_SCALE = 64,
 
     // AXI lite interface configuration
     parameter AXIL_BASE_ADDR = 0,
@@ -31,7 +33,7 @@ module tx_scheduler_rr #
     parameter AXIL_STRB_WIDTH = (AXIL_DATA_WIDTH/8),
 
     // Register interface configuration
-    parameter REG_ADDR_WIDTH = $clog2(32),
+    parameter REG_ADDR_WIDTH = $clog2(64),
     parameter REG_DATA_WIDTH = AXIL_DATA_WIDTH,
     parameter REG_STRB_WIDTH = (REG_DATA_WIDTH/8),
     parameter RB_BLOCK_TYPE = 32'h0000C040,
@@ -127,6 +129,12 @@ module tx_scheduler_rr #
     output wire                          active
 );
 
+localparam CL_FC_SCALE = $clog2(FC_SCALE);
+localparam PKT_FC_W = 8;
+localparam BUDGET_FC_W = LEN_WIDTH-CL_FC_SCALE;
+localparam DATA_FC_W = BUDGET_FC_W+PKT_FC_W;
+localparam TX_FC_W = 4;
+
 localparam QUEUE_COUNT = 2**QUEUE_INDEX_WIDTH;
 
 localparam CL_OP_TABLE_SIZE = $clog2(OP_TABLE_SIZE);
@@ -173,12 +181,12 @@ initial begin
         $finish;
     end
 
-    if (REG_ADDR_WIDTH < $clog2(32)) begin
+    if (REG_ADDR_WIDTH < $clog2(64)) begin
         $error("Error: Register address width too narrow (instance %m)");
         $finish;
     end
 
-    if (RB_NEXT_PTR && RB_NEXT_PTR >= RB_BASE_ADDR && RB_NEXT_PTR < RB_BASE_ADDR + 32) begin
+    if (RB_NEXT_PTR && RB_NEXT_PTR >= RB_BASE_ADDR && RB_NEXT_PTR < RB_BASE_ADDR + 64) begin
         $error("Error: RB_NEXT_PTR overlaps block (instance %m)");
         $finish;
     end
@@ -230,15 +238,13 @@ reg [RAM_WIDTH-1:0] queue_ram_rd_data;
 // Scheduler RAM entry:
 // bit            len  field
 // 0              1    enable
-// 1              1    global_enable
-// 2              1    sched_enable
+// 1              1    pause
 // 6              1    active
 // 7              1    scheduled
 // 15:8           8   tail index
 
 wire queue_ram_rd_data_enabled = queue_ram_rd_data[0];
-wire queue_ram_rd_data_global_enable = queue_ram_rd_data[1];
-wire queue_ram_rd_data_sched_enable = queue_ram_rd_data[2];
+wire queue_ram_rd_data_paused = queue_ram_rd_data[1];
 wire queue_ram_rd_data_active = queue_ram_rd_data[6];
 wire queue_ram_rd_data_scheduled = queue_ram_rd_data[7];
 wire [CL_OP_TABLE_SIZE-1:0] queue_ram_rd_data_op_tail_index = queue_ram_rd_data[15:8];
@@ -476,6 +482,154 @@ initial begin
     end
 end
 
+// flow control
+reg ch_fetch_fc_cons_en = 1'b0;
+reg ch_fetch_fc_rel_sched_fail_en = 1'b0;
+reg ch_fetch_fc_rel_dequeue_fail_en = 1'b0;
+reg ch_fetch_fc_rel_fetch_fail_en = 1'b0;
+reg [DATA_FC_W-1:0] ch_tx_data_fc_cons = 0;
+reg ch_tx_fc_cons_en = 1'b0;
+reg [DATA_FC_W-1:0] ch_tx_data_fc_rel = 0;
+reg ch_tx_fc_rel_en = 1'b0;
+
+reg ch_enable_reg = 1'b0;
+reg ch_active_reg = 1'b0;
+reg ch_fetch_active_reg = 1'b0;
+reg [TX_FC_W-1:0] ch_fetch_fc_cnt_reg = 0;
+reg [TX_FC_W-1:0] ch_fetch_fc_lim_reg = 0;
+reg ch_fetch_fc_av_reg = 0;
+reg [PKT_FC_W-1:0] ch_fetch_pkt_fc_cons_reg = 0;
+reg [PKT_FC_W-1:0] ch_fetch_pkt_fc_rel_sched_fail_reg = 0;
+reg [PKT_FC_W-1:0] ch_fetch_pkt_fc_rel_dequeue_fail_reg = 0;
+reg [PKT_FC_W-1:0] ch_fetch_pkt_fc_rel_fetch_fail_reg = 0;
+reg [PKT_FC_W-1:0] ch_pkt_fc_lim_reg = {PKT_FC_W{1'b1}};
+reg [BUDGET_FC_W-1:0] ch_data_fc_budget_reg = (MAX_TX_SIZE + 2**CL_FC_SCALE - 1) >> CL_FC_SCALE;
+reg [PKT_FC_W-1:0] ch_tx_pkt_fc_cons_reg = 0;
+reg [DATA_FC_W-1:0] ch_tx_data_fc_cons_reg = 0;
+reg [PKT_FC_W-1:0] ch_tx_pkt_fc_rel_reg = 0;
+reg [DATA_FC_W-1:0] ch_tx_data_fc_rel_reg = 0;
+reg [DATA_FC_W-1:0] ch_data_fc_lim_reg = (MAX_TX_SIZE + 2**CL_FC_SCALE - 1) >> CL_FC_SCALE;
+
+reg [TX_FC_W-1:0] ch_fetch_fc_cnt_d1_reg = 0;
+reg [TX_FC_W-1:0] ch_fetch_fc_cnt_d2_reg = 0;
+reg [PKT_FC_W-1:0] ch_fetch_pkt_fc_cnt_reg = 0;
+reg [PKT_FC_W-1:0] ch_tx_pkt_fc_cnt_reg = 0;
+reg [PKT_FC_W-1:0] ch_pkt_fc_cnt_reg = 0;
+reg [DATA_FC_W-1:0] ch_tx_data_fc_cnt_reg = 0;
+reg [DATA_FC_W-1:0] ch_data_fc_cnt_reg = 0;
+
+always @* begin
+    ch_fetch_fc_rel_dequeue_fail_en = 1'b0;
+    ch_fetch_fc_rel_fetch_fail_en = 1'b0;
+    ch_tx_data_fc_cons = 0;
+    ch_tx_fc_cons_en = 1'b0;
+    ch_tx_data_fc_rel = 0;
+    ch_tx_fc_rel_en = 1'b0;
+
+    if (s_axis_tx_status_dequeue_valid) begin
+        if (s_axis_tx_status_dequeue_empty || s_axis_tx_status_dequeue_error) begin
+            ch_fetch_fc_rel_dequeue_fail_en = 1'b1;
+        end
+    end
+
+    ch_tx_data_fc_cons = (s_axis_tx_status_start_len + 2**CL_FC_SCALE-1) >> CL_FC_SCALE;
+    if (s_axis_tx_status_start_valid) begin
+        if (s_axis_tx_status_start_error) begin
+            ch_fetch_fc_rel_fetch_fail_en = 1'b1;
+        end else begin
+            ch_fetch_fc_rel_fetch_fail_en = 1'b1;
+            ch_tx_fc_cons_en = 1'b1;
+        end
+    end
+
+    ch_tx_data_fc_rel = (s_axis_tx_status_finish_len + 2**CL_FC_SCALE-1) >> CL_FC_SCALE;
+    if (s_axis_tx_status_finish_valid) begin
+        ch_tx_fc_rel_en = 1'b1;
+    end
+end
+
+always @(posedge clk) begin
+    // handle events
+    if (ch_fetch_fc_cons_en) begin
+        ch_fetch_pkt_fc_cons_reg <= ch_fetch_pkt_fc_cons_reg + 1;
+        ch_fetch_fc_cnt_reg <= ch_fetch_fc_cnt_reg + 1;
+        ch_fetch_fc_av_reg <= ((ch_fetch_fc_lim_reg - ch_fetch_fc_cnt_reg - 1) & {TX_FC_W{1'b1}}) <= 2**(TX_FC_W-1) && ch_enable_reg;
+    end else begin
+        ch_fetch_fc_av_reg <= ((ch_fetch_fc_lim_reg - ch_fetch_fc_cnt_reg) & {TX_FC_W{1'b1}}) <= 2**(TX_FC_W-1) && ch_enable_reg;
+    end
+
+    if (ch_fetch_fc_rel_sched_fail_en) begin
+        ch_fetch_pkt_fc_rel_sched_fail_reg <= ch_fetch_pkt_fc_rel_sched_fail_reg + 1;
+    end
+
+    if (ch_fetch_fc_rel_dequeue_fail_en) begin
+        ch_fetch_pkt_fc_rel_dequeue_fail_reg <= ch_fetch_pkt_fc_rel_dequeue_fail_reg + 1;
+    end
+
+    if (ch_fetch_fc_rel_fetch_fail_en) begin
+        ch_fetch_pkt_fc_rel_fetch_fail_reg <= ch_fetch_pkt_fc_rel_fetch_fail_reg + 1;
+    end
+
+    if (ch_tx_fc_cons_en) begin
+        ch_tx_pkt_fc_cons_reg <= ch_tx_pkt_fc_cons_reg + 1;
+        ch_tx_data_fc_cons_reg <= ch_tx_data_fc_cons_reg + ch_tx_data_fc_cons;
+    end
+
+    if (ch_tx_fc_rel_en) begin
+        ch_tx_pkt_fc_rel_reg <= ch_tx_pkt_fc_rel_reg + 1;
+        ch_tx_data_fc_rel_reg <= ch_tx_data_fc_rel_reg + ch_tx_data_fc_rel;
+    end
+
+    // intermediate counts
+    ch_fetch_pkt_fc_cnt_reg <= ch_fetch_pkt_fc_cons_reg - ch_fetch_pkt_fc_rel_sched_fail_reg - ch_fetch_pkt_fc_rel_dequeue_fail_reg - ch_fetch_pkt_fc_rel_fetch_fail_reg;
+    ch_tx_pkt_fc_cnt_reg <= ch_tx_pkt_fc_cons_reg - ch_tx_pkt_fc_rel_reg;
+    ch_tx_data_fc_cnt_reg <= ch_tx_data_fc_cons_reg - ch_tx_data_fc_rel_reg;
+    ch_fetch_fc_cnt_d1_reg <= ch_fetch_fc_cnt_reg;
+
+    // final counts
+    ch_pkt_fc_cnt_reg <= ch_fetch_pkt_fc_cnt_reg + ch_tx_pkt_fc_cnt_reg;
+    ch_data_fc_cnt_reg <= ch_fetch_pkt_fc_cnt_reg*ch_data_fc_budget_reg + ch_tx_data_fc_cnt_reg;
+    ch_fetch_fc_cnt_d2_reg <= ch_fetch_fc_cnt_d1_reg;
+
+    ch_fetch_active_reg <= ch_fetch_pkt_fc_cnt_reg != 0;
+    ch_active_reg <= ch_fetch_pkt_fc_cnt_reg != 0 || ch_tx_pkt_fc_cnt_reg != 0;
+
+    // generate credits
+    if ($signed({1'b0, ch_data_fc_lim_reg}) - $signed({1'b0, ch_data_fc_cnt_reg}) >= {ch_data_fc_budget_reg, 3'd0} && $signed({1'b0, ch_pkt_fc_lim_reg}) - $signed({1'b0, ch_pkt_fc_cnt_reg}) >= 8 && TX_FC_W > 3) begin
+        ch_fetch_fc_lim_reg <= ch_fetch_fc_cnt_d2_reg + 8;
+    end else if ($signed({1'b0, ch_data_fc_lim_reg}) - $signed({1'b0, ch_data_fc_cnt_reg}) >= {ch_data_fc_budget_reg, 2'd0} && $signed({1'b0, ch_pkt_fc_lim_reg}) - $signed({1'b0, ch_pkt_fc_cnt_reg}) >= 4 && TX_FC_W > 2) begin
+        ch_fetch_fc_lim_reg <= ch_fetch_fc_cnt_d2_reg + 4;
+    end else if ($signed({1'b0, ch_data_fc_lim_reg}) - $signed({1'b0, ch_data_fc_cnt_reg}) >= {ch_data_fc_budget_reg, 1'd0} && $signed({1'b0, ch_pkt_fc_lim_reg}) - $signed({1'b0, ch_pkt_fc_cnt_reg}) >= 2) begin
+        ch_fetch_fc_lim_reg <= ch_fetch_fc_cnt_d2_reg + 2;
+    end else if ($signed({1'b0, ch_data_fc_lim_reg}) - $signed({1'b0, ch_data_fc_cnt_reg}) >= ch_data_fc_budget_reg && $signed({1'b0, ch_pkt_fc_lim_reg}) - $signed({1'b0, ch_pkt_fc_cnt_reg}) >= 1) begin
+        ch_fetch_fc_lim_reg <= ch_fetch_fc_cnt_d2_reg + 1;
+    end else begin
+        ch_fetch_fc_lim_reg <= ch_fetch_fc_cnt_d2_reg;
+        ch_fetch_fc_av_reg <= 1'b0;
+    end
+
+    if (rst) begin
+        ch_fetch_fc_cnt_reg <= 0;
+        ch_fetch_fc_cnt_d1_reg <= 0;
+        ch_fetch_fc_cnt_d2_reg <= 0;
+        ch_fetch_fc_lim_reg <= 0;
+        ch_fetch_fc_av_reg <= 0;
+        ch_fetch_pkt_fc_cons_reg <= 0;
+        ch_fetch_pkt_fc_rel_sched_fail_reg <= 0;
+        ch_fetch_pkt_fc_rel_dequeue_fail_reg <= 0;
+        ch_fetch_pkt_fc_rel_fetch_fail_reg <= 0;
+        ch_fetch_pkt_fc_cnt_reg <= 0;
+        ch_tx_pkt_fc_cnt_reg <= 0;
+        ch_pkt_fc_cnt_reg <= 0;
+        ch_tx_pkt_fc_cons_reg <= 0;
+        ch_tx_data_fc_cons_reg <= 0;
+        ch_tx_pkt_fc_rel_reg <= 0;
+        ch_tx_data_fc_rel_reg <= 0;
+        ch_tx_data_fc_cnt_reg <= 0;
+        ch_data_fc_cnt_reg <= 0;
+    end
+end
+
 // control registers
 reg ctrl_reg_wr_ack_reg = 1'b0;
 reg [REG_DATA_WIDTH-1:0] ctrl_reg_rd_data_reg = {REG_DATA_WIDTH{1'b0}};
@@ -503,9 +657,35 @@ always @(posedge clk) begin
             // Round-robin scheduler
             RBB+8'h18: begin
                 // Sched: control
-                enable_reg <= ctrl_reg_wr_data[0];
+                if (ctrl_reg_wr_strb[0]) begin
+                    enable_reg <= ctrl_reg_wr_data[0];
+                end
             end
-            RBB+8'h1C: m_axis_tx_req_dest_reg <= ctrl_reg_wr_data;  // Sched: dest
+            RBB+8'h20: begin
+                if (ctrl_reg_wr_strb[0]) begin
+                    ch_enable_reg <= ctrl_reg_wr_data[0];
+                end
+            end
+            RBB+8'h24: begin
+                if (ctrl_reg_wr_strb[1:0]) begin
+                    m_axis_tx_req_dest_reg <= ctrl_reg_wr_data[15:0];
+                end
+                if (ctrl_reg_wr_strb[3:2]) begin
+                    // TODO
+                    // ch_pkt_fc_budget_reg <= ctrl_reg_wr_data[31:16];
+                end
+            end
+            RBB+8'h28: begin
+                if (ctrl_reg_wr_strb[1:0]) begin
+                    ch_data_fc_budget_reg <= ctrl_reg_wr_data[15:0];
+                end
+                if (ctrl_reg_wr_strb[3:2]) begin
+                    ch_pkt_fc_lim_reg <= ctrl_reg_wr_data[31:16];
+                end
+            end
+            RBB+8'h2C: begin
+                ch_data_fc_lim_reg <= ctrl_reg_wr_data;
+            end
             default: ctrl_reg_wr_ack_reg <= 1'b0;
         endcase
     end
@@ -516,17 +696,40 @@ always @(posedge clk) begin
         case ({ctrl_reg_rd_addr >> 2, 2'b00})
             // Round-robin scheduler
             RBB+8'h00: ctrl_reg_rd_data_reg <= RB_BLOCK_TYPE;         // Sched: Type
-            RBB+8'h04: ctrl_reg_rd_data_reg <= 32'h00000100;          // Sched: Version
+            RBB+8'h04: ctrl_reg_rd_data_reg <= 32'h00000200;          // Sched: Version
             RBB+8'h08: ctrl_reg_rd_data_reg <= RB_NEXT_PTR;           // Sched: Next header
             RBB+8'h0C: ctrl_reg_rd_data_reg <= AXIL_BASE_ADDR;        // Sched: Offset
             RBB+8'h10: ctrl_reg_rd_data_reg <= 2**QUEUE_INDEX_WIDTH;  // Sched: Channel count
             RBB+8'h14: ctrl_reg_rd_data_reg <= 4;                     // Sched: Channel stride
             RBB+8'h18: begin
                 // Sched: control
-                ctrl_reg_rd_data_reg[0] <= enable_reg;
-                ctrl_reg_rd_data_reg[8] <= active_queue_count_reg != 0;
+                ctrl_reg_rd_data_reg[0]  <= enable_reg;
+                ctrl_reg_rd_data_reg[16] <= active_queue_count_reg != 0;
             end
-            RBB+8'h1C: ctrl_reg_rd_data_reg <= m_axis_tx_req_dest_reg;  // Sched: dest
+            RBB+8'h1C: begin
+                ctrl_reg_rd_data_reg[7:0]   <= 1;                     // Sched: TC count
+                ctrl_reg_rd_data_reg[15:8]  <= 1;                     // Sched: Port count
+                ctrl_reg_rd_data_reg[23:16] <= CL_FC_SCALE;           // Sched: FC scale
+            end
+            RBB+8'h20: begin
+                ctrl_reg_rd_data_reg[0]  <= ch_enable_reg;
+                ctrl_reg_rd_data_reg[16] <= ch_active_reg;
+                ctrl_reg_rd_data_reg[17] <= ch_fetch_active_reg;
+                ctrl_reg_rd_data_reg[18] <= ch_fetch_fc_av_reg;
+                ctrl_reg_rd_data_reg[19] <= axis_scheduler_fifo_out_valid;
+            end
+            RBB+8'h24: begin
+                ctrl_reg_rd_data_reg[15:0]  <= m_axis_tx_req_dest_reg;
+                // TODO
+                ctrl_reg_rd_data_reg[31:16] <= 1; // ch_pkt_fc_budget_reg;
+            end
+            RBB+8'h28: begin
+                ctrl_reg_rd_data_reg[15:0]  <= ch_data_fc_budget_reg;
+                ctrl_reg_rd_data_reg[31:16] <= ch_pkt_fc_lim_reg;
+            end
+            RBB+8'h2C: begin
+                ctrl_reg_rd_data_reg <= ch_data_fc_lim_reg;
+            end
             default: ctrl_reg_rd_ack_reg <= 1'b0;
         endcase
     end
@@ -537,8 +740,16 @@ always @(posedge clk) begin
 
         enable_reg <= 1'b0;
         m_axis_tx_req_dest_reg <= REQ_DEST_DEFAULT;
+
+        ch_enable_reg <= 0;
+        ch_pkt_fc_lim_reg <= {PKT_FC_W{1'b1}};
+        ch_data_fc_budget_reg <= (MAX_TX_SIZE + 2**CL_FC_SCALE - 1) >> CL_FC_SCALE;
+        ch_data_fc_lim_reg <= (MAX_TX_SIZE + 2**CL_FC_SCALE - 1) >> CL_FC_SCALE;
     end
 end
+
+reg enabled;
+reg paused;
 
 always @* begin
     op_axil_write_pipe_next = {op_axil_write_pipe_reg, 1'b0};
@@ -625,6 +836,9 @@ always @* begin
 
     axis_scheduler_fifo_out_ready = 1'b0;
 
+    ch_fetch_fc_cons_en = 1'b0;
+    ch_fetch_fc_rel_sched_fail_en = 1'b0;
+
     // pipeline stage 0 - receive request
     if (!init_reg) begin
         // init queue states
@@ -687,7 +901,7 @@ always @* begin
 
         queue_ram_rd_addr = s_axis_sched_ctrl_queue;
         queue_ram_addr_pipeline_next[0] = s_axis_sched_ctrl_queue;
-    end else if (enable && enable_reg && op_table_start_ptr_valid && axis_scheduler_fifo_out_valid && (!m_axis_tx_req_valid || m_axis_tx_req_ready) && !op_req_pipe_reg) begin
+    end else if (enable && enable_reg && op_table_start_ptr_valid && axis_scheduler_fifo_out_valid && ch_fetch_fc_av_reg && (!m_axis_tx_req_valid || m_axis_tx_req_ready) && !op_req_pipe_reg) begin
         // transmit request
         op_req_pipe_next[0] = 1'b1;
 
@@ -697,6 +911,8 @@ always @* begin
         op_index_pipeline_next[0] = op_table_start_ptr;
 
         axis_scheduler_fifo_out_ready = 1'b1;
+
+        ch_fetch_fc_cons_en = 1'b1;
 
         queue_ram_rd_addr = axis_scheduler_fifo_out_queue;
         queue_ram_addr_pipeline_next[0] = axis_scheduler_fifo_out_queue;
@@ -708,11 +924,9 @@ always @* begin
 
         // init queue state
         queue_ram_wr_addr = queue_ram_addr_pipeline_reg[PIPELINE-1];
+        queue_ram_wr_data = 0;
         queue_ram_wr_data[0] = 1'b0; // queue enabled
-        if (SCHED_CTRL_ENABLE) begin
-            queue_ram_wr_data[1] = 1'b0; // queue global enable
-            queue_ram_wr_data[2] = 1'b0; // queue sched enable
-        end
+        queue_ram_wr_data[1] = 1'b0; // queue paused
         queue_ram_wr_data[6] = 1'b0; // queue active
         queue_ram_wr_data[7] = 1'b0; // queue scheduled
         queue_ram_wr_strb[0] = 1'b1;
@@ -727,7 +941,7 @@ always @* begin
         queue_ram_wr_en = 1'b1;
 
         // schedule queue if necessary
-        if (queue_ram_rd_data_enabled && (!SCHED_CTRL_ENABLE || queue_ram_rd_data_global_enable || queue_ram_rd_data_sched_enable) && !queue_ram_rd_data_scheduled) begin
+        if (queue_ram_rd_data_enabled && !queue_ram_rd_data_paused && !queue_ram_rd_data_scheduled) begin
             queue_ram_wr_data[7] = 1'b1; // queue scheduled
 
             axis_scheduler_fifo_in_queue = queue_ram_addr_pipeline_reg[PIPELINE-1];
@@ -761,7 +975,7 @@ always @* begin
         op_table_update_next_ptr = queue_ram_rd_data_op_tail_index;
         op_table_update_next_index = op_index_pipeline_reg[PIPELINE-1];
 
-        if (queue_ram_rd_data_enabled && (!SCHED_CTRL_ENABLE || queue_ram_rd_data_global_enable || queue_ram_rd_data_sched_enable) && queue_ram_rd_data_active && queue_ram_rd_data_scheduled) begin
+        if (queue_ram_rd_data_enabled && !queue_ram_rd_data_paused && queue_ram_rd_data_active && queue_ram_rd_data_scheduled) begin
             // queue enabled, active, and scheduled
 
             // issue transmit request
@@ -785,6 +999,8 @@ always @* begin
 
             // update state
             queue_ram_wr_data[7] = 1'b0; // queue scheduled
+
+            ch_fetch_fc_rel_sched_fail_en = 1'b1;
 
             if (queue_ram_rd_data_scheduled) begin
                 active_queue_count_next = active_queue_count_reg - 1;
@@ -816,8 +1032,8 @@ always @* begin
         if (write_data_pipeline_reg[PIPELINE-1][0]) begin
             queue_ram_wr_data[6] = 1'b1; // queue active
 
-            // schedule if disabled
-            if ((!SCHED_CTRL_ENABLE || write_data_pipeline_reg[PIPELINE-1][1] || queue_ram_rd_data_sched_enable) && !queue_ram_rd_data_scheduled) begin
+            // schedule if necessary
+            if (queue_ram_rd_data_enabled && !queue_ram_rd_data_paused && !queue_ram_rd_data_scheduled) begin
                 queue_ram_wr_data[7] = 1'b1; // queue scheduled
 
                 axis_scheduler_fifo_in_queue = queue_ram_addr_pipeline_reg[PIPELINE-1];
@@ -833,11 +1049,11 @@ always @* begin
         queue_ram_wr_addr = queue_ram_addr_pipeline_reg[PIPELINE-1];
         queue_ram_wr_en = 1'b1;
 
-        queue_ram_wr_data[2] = write_data_pipeline_reg[PIPELINE-1][0]; // queue sched enable
+        queue_ram_wr_data[1] = !write_data_pipeline_reg[PIPELINE-1][0]; // queue pause
         queue_ram_wr_strb[0] = 1'b1;
 
-        // schedule if disabled
-        if (queue_ram_rd_data_enabled && queue_ram_rd_data_active && (queue_ram_rd_data_global_enable || write_data_pipeline_reg[PIPELINE-1][0]) && !queue_ram_rd_data_scheduled) begin
+        // schedule if necessary
+        if (queue_ram_rd_data_enabled && queue_ram_rd_data_active && !(!write_data_pipeline_reg[PIPELINE-1][0]) && !queue_ram_rd_data_scheduled) begin
             queue_ram_wr_data[7] = 1'b1; // queue scheduled
 
             axis_scheduler_fifo_in_queue = queue_ram_addr_pipeline_reg[PIPELINE-1];
@@ -852,12 +1068,42 @@ always @* begin
         queue_ram_wr_addr = queue_ram_addr_pipeline_reg[PIPELINE-1];
         queue_ram_wr_en = 1'b1;
 
-        queue_ram_wr_data[0] = write_data_pipeline_reg[PIPELINE-1][0]; // queue enabled
-        queue_ram_wr_data[1] = write_data_pipeline_reg[PIPELINE-1][1]; // queue global enable
-        queue_ram_wr_strb[0] = write_strobe_pipeline_reg[PIPELINE-1][0];
+        enabled = queue_ram_rd_data_enabled;
+        paused = queue_ram_rd_data_paused;
 
-        // schedule if disabled
-        if (write_data_pipeline_reg[PIPELINE-1][0] && queue_ram_rd_data_active && (!SCHED_CTRL_ENABLE || write_data_pipeline_reg[PIPELINE-1][1] || queue_ram_rd_data_sched_enable) && !queue_ram_rd_data_scheduled) begin
+        casez (write_data_pipeline_reg[PIPELINE-1])
+            32'h8001zzzz: begin
+                // set port TC
+                // TODO
+            end
+            32'h8002zzzz: begin
+                // set port enable
+                // TODO
+            end
+            32'h8003zzzz: begin
+                // set port pause
+                // TODO
+            end
+            32'h400001zz: begin
+                // set queue enable
+                queue_ram_wr_data[0] = write_data_pipeline_reg[PIPELINE-1][0];
+                queue_ram_wr_strb[0] = 1'b1;
+                enabled = write_data_pipeline_reg[PIPELINE-1][0];
+            end
+            32'h400002zz: begin
+                // set queue pause
+                queue_ram_wr_data[1] = write_data_pipeline_reg[PIPELINE-1][0];
+                queue_ram_wr_strb[0] = 1'b1;
+                paused = write_data_pipeline_reg[PIPELINE-1][0];
+            end
+            default: begin
+                // invalid command
+                $display("Error: Invalid command 0x%x for queue %d (instance %m)", write_data_pipeline_reg[PIPELINE-1], queue_ram_addr_pipeline_reg[PIPELINE-1]);
+            end
+        endcase
+
+        // schedule if necessary
+        if (enabled && queue_ram_rd_data_active && !paused && !queue_ram_rd_data_scheduled) begin
             queue_ram_wr_data[7] = 1'b1; // queue scheduled
 
             axis_scheduler_fifo_in_queue = queue_ram_addr_pipeline_reg[PIPELINE-1];
@@ -870,13 +1116,15 @@ always @* begin
         s_axil_rvalid_next = 1'b1;
         s_axil_rdata_next = 0;
 
-        s_axil_rdata_next[0] = queue_ram_rd_data_enabled;
-        if (SCHED_CTRL_ENABLE) begin
-            s_axil_rdata_next[1] = queue_ram_rd_data_global_enable;
-            s_axil_rdata_next[2] = queue_ram_rd_data_sched_enable;
-        end
-        s_axil_rdata_next[16] = queue_ram_rd_data_active;
-        s_axil_rdata_next[24] = queue_ram_rd_data_scheduled;
+        // queue
+        s_axil_rdata_next[6] = queue_ram_rd_data_enabled;
+        s_axil_rdata_next[7] = queue_ram_rd_data_paused;
+        s_axil_rdata_next[14] = queue_ram_rd_data_active;
+
+        // port 0
+        s_axil_rdata_next[3] = queue_ram_rd_data_enabled;
+        s_axil_rdata_next[4] = queue_ram_rd_data_paused;
+        s_axil_rdata_next[5] = queue_ram_rd_data_scheduled;
     end
 
     // handle read data override

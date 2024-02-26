@@ -323,20 +323,41 @@ int main(int argc, char *argv[])
     {
         if (rb->type == MQNIC_RB_SCHED_RR_TYPE && rb->version == MQNIC_RB_SCHED_RR_VER)
         {
+            uint32_t val;
+            int ch_count;
+            int fc_scale;
+
             printf("Round-robin scheduler\n");
 
-            printf("Sched channel count: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_COUNT));
-            printf("Sched channel stride: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE));
-            printf("Sched control: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CTRL));
-            printf("Sched dest: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_DEST));
+            printf("Sched queue count: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_QUEUE_COUNT));
+            printf("Sched queue stride: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_QUEUE_STRIDE));
+            printf("Sched control: 0x%08x\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CTRL));
+
+            val = mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CFG);
+            printf("Sched TC count: %d\n", val & 0xff);
+            printf("Sched port count: %d\n", (val >> 8) & 0xff);
+            ch_count = (val & 0xff) * ((val >> 8) & 0xff);
+            printf("Sched channel count: %d\n", ch_count);
+            fc_scale = 1 << ((val >> 16) & 0xff);
+            printf("Sched FC scale: %d\n", fc_scale);
+
+            for (int k = 0; k < ch_count; k++)
+            {
+                printf("Sched CH%d control: 0x%08x\n", k, mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_CTRL));
+                printf("Sched CH%d dest: 0x%04x\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC1_DEST));
+                printf("Sched CH%d pkt budget: %d\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC1_PB));
+                printf("Sched CH%d data budget: %d\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC2_DB) * fc_scale);
+                printf("Sched CH%d pkt limit: %d\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC2_PL));
+                printf("Sched CH%d data limit: %d\n", k, mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC3_DL) * fc_scale);
+            }
         }
         else if (rb->type == MQNIC_RB_SCHED_CTRL_TDMA_TYPE && rb->version == MQNIC_RB_SCHED_CTRL_TDMA_VER)
         {
             printf("TDMA scheduler controller\n");
 
-            printf("Sched channel count: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CH_COUNT));
-            printf("Sched channel stride: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CH_STRIDE));
-            printf("Sched control: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CTRL));
+            printf("Sched queue count: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CH_COUNT));
+            printf("Sched queue stride: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CH_STRIDE));
+            printf("Sched control: 0x%08x\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CTRL));
             printf("Sched timeslot count: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_TS_COUNT));
         }
         else if (rb->type == MQNIC_RB_TDMA_SCH_TYPE && rb->version == MQNIC_RB_TDMA_SCH_VER)
@@ -366,12 +387,13 @@ int main(int argc, char *argv[])
 
         val = mqnic_reg_read32(base, MQNIC_EQ_CTRL_STATUS_REG);
         uint32_t irq = val & 0xffff;
-        uint8_t enable = (val & MQNIC_EQ_ENABLE_MASK) != 0;
-        uint8_t armed = (val & MQNIC_EQ_ARM_MASK) != 0;
-        uint8_t active = (val & MQNIC_EQ_ACTIVE_MASK) != 0;
-        if (enable) flags[0] = 'e';
-        if (armed) flags[1] = 'r';
-        if (active) flags[2] = 'a';
+        int enable = val & MQNIC_EQ_ENABLE_MASK;
+        if (enable)
+            flags[0] = 'e';
+        if (val & MQNIC_EQ_ARM_MASK)
+            flags[1] = 'r';
+        if (val & MQNIC_EQ_ACTIVE_MASK)
+            flags[2] = 'a';
         uint8_t log_queue_size = (val >> 28) & 0xf;
 
         if (!enable && !verbose)
@@ -397,12 +419,13 @@ int main(int argc, char *argv[])
 
         val = mqnic_reg_read32(base, MQNIC_CQ_CTRL_STATUS_REG);
         uint32_t eqn = val & 0xffff;
-        uint8_t enable = (val & MQNIC_CQ_ENABLE_MASK) != 0;
-        uint8_t armed = (val & MQNIC_CQ_ARM_MASK) != 0;
-        uint8_t active = (val & MQNIC_CQ_ACTIVE_MASK) != 0;
-        if (enable) flags[0] = 'e';
-        if (armed) flags[1] = 'r';
-        if (active) flags[2] = 'a';
+        int enable = val & MQNIC_CQ_ENABLE_MASK;
+        if (enable)
+            flags[0] = 'e';
+        if (val & MQNIC_CQ_ARM_MASK)
+            flags[1] = 'r';
+        if (val & MQNIC_CQ_ACTIVE_MASK)
+            flags[2] = 'a';
         uint8_t log_queue_size = (val >> 28) & 0xf;
 
         if (!enable && !verbose)
@@ -427,10 +450,11 @@ int main(int argc, char *argv[])
         char flags[8] = "--";
 
         val = mqnic_reg_read32(base, MQNIC_QUEUE_CTRL_STATUS_REG);
-        uint8_t enable = (val & MQNIC_QUEUE_ENABLE_MASK) != 0;
-        uint8_t active = (val & MQNIC_QUEUE_ACTIVE_MASK) != 0;
-        if (enable) flags[0] = 'e';
-        if (active) flags[1] = 'a';
+        int enable = val & MQNIC_QUEUE_ENABLE_MASK;
+        if (enable)
+            flags[0] = 'e';
+        if (val & MQNIC_QUEUE_ACTIVE_MASK)
+            flags[1] = 'a';
 
         if (!enable && !verbose)
             continue;
@@ -458,10 +482,11 @@ int main(int argc, char *argv[])
         char flags[8] = "--";
 
         val = mqnic_reg_read32(base, MQNIC_QUEUE_CTRL_STATUS_REG);
-        uint8_t enable = (val & MQNIC_QUEUE_ENABLE_MASK) != 0;
-        uint8_t active = (val & MQNIC_QUEUE_ACTIVE_MASK) != 0;
-        if (enable) flags[0] = 'e';
-        if (active) flags[1] = 'a';
+        int enable = val & MQNIC_QUEUE_ENABLE_MASK;
+        if (enable)
+            flags[0] = 'e';
+        if (val & MQNIC_QUEUE_ACTIVE_MASK)
+            flags[1] = 'a';
 
         if (!enable && !verbose)
             continue;
@@ -480,15 +505,48 @@ int main(int argc, char *argv[])
         printf("RXQ %4d  0x%016lx  %-5s  %d  %2d  %4d  %6d  %6d  %6d\n", k, base_addr, flags, log_desc_block_size, log_queue_size, cqn, prod_ptr, cons_ptr, occupancy);
     }
 
-    if (verbose)
+    for (int k = 0; k < dev_sched_block->sched_count; k++)
     {
-        for (int k = 0; k < dev_sched_block->sched_count; k++)
+        struct mqnic_sched *sched = dev_sched_block->sched[k];
+        printf("Scheduler block %d scheduler %d\n", sched_block, k);
+        printf("Sched  Queue   Flags");
+        for (int k = 0; k < sched->port_count; k++)
+            printf("  Port %2d", k);
+        printf("\n");
+        for (int l = 0; l < sched->queue_count; l++)
         {
-            printf("Scheduler block %d scheduler %d\n", sched_block, k);
-            for (int l = 0; l < mqnic_res_get_count(dev_interface->txq_res); l++)
+            volatile uint8_t *base = sched->regs + l*sched->queue_stride;
+            uint32_t val = mqnic_reg_read32(base, 0);
+            char flags[8] = "---";
+
+            int enable = val & MQNIC_SCHED_RR_QUEUE_EN;
+            if (enable) flags[0] = 'e';
+            if (val & MQNIC_SCHED_RR_QUEUE_PAUSE)
+                flags[1] = 'p';
+            if (val & MQNIC_SCHED_RR_QUEUE_ACTIVE)
+                flags[2] = 'a';
+
+            if (!enable && !verbose)
+                continue;
+
+            printf("SCH %2d Q %4d  %-5s", k, l, flags);
+
+            for (int k = 0; k < sched->port_count; k++)
             {
-                printf("Sched %2d queue %4d state: 0x%08x\n", k, l, mqnic_reg_read32(dev_sched_block->sched[k]->regs, l*4));
+                char flags[8] = "---";
+
+                int tc = (val >> (k*8)) & MQNIC_SCHED_RR_PORT_TC;
+                if ((val >> (k*8)) & MQNIC_SCHED_RR_PORT_EN)
+                    flags[0] = 'e';
+                if ((val >> (k*8)) & MQNIC_SCHED_RR_PORT_PAUSE)
+                    flags[1] = 'p';
+                if ((val >> (k*8)) & MQNIC_SCHED_RR_PORT_TC)
+                    flags[2] = 's';
+
+                printf("  %-3s TC%d", flags, tc);
             }
+
+            printf(" (0x%08x)\n", val);
         }
     }
 
@@ -500,7 +558,7 @@ int main(int argc, char *argv[])
             uint64_t val = mqnic_stats_read(dev, k);
 
             if (val || verbose)
-                printf("Index %d: %lu\n", k, mqnic_stats_read(dev, k));
+                printf("%d: %lu\n", k, val);
         }
     }
 

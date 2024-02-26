@@ -328,8 +328,13 @@ struct mqnic_sched {
 
 	u32 type;
 	u32 offset;
-	u32 channel_count;
-	u32 channel_stride;
+	u32 queue_count;
+	u32 queue_stride;
+
+	int tc_count;
+	int port_count;
+	int channel_count;
+	int fc_scale;
 
 	u8 __iomem *hw_addr;
 };
@@ -534,6 +539,22 @@ struct mqnic_sched *mqnic_create_scheduler(struct mqnic_sched_block *block,
 void mqnic_destroy_scheduler(struct mqnic_sched *sched);
 int mqnic_scheduler_enable(struct mqnic_sched *sched);
 void mqnic_scheduler_disable(struct mqnic_sched *sched);
+int mqnic_scheduler_channel_enable(struct mqnic_sched *sched, int ch);
+void mqnic_scheduler_channel_disable(struct mqnic_sched *sched, int ch);
+void mqnic_scheduler_channel_set_dest(struct mqnic_sched *sched, int ch, int val);
+int mqnic_scheduler_channel_get_dest(struct mqnic_sched *sched, int ch);
+void mqnic_scheduler_channel_set_pkt_budget(struct mqnic_sched *sched, int ch, int val);
+int mqnic_scheduler_channel_get_pkt_budget(struct mqnic_sched *sched, int ch);
+void mqnic_scheduler_channel_set_data_budget(struct mqnic_sched *sched, int ch, int val);
+int mqnic_scheduler_channel_get_data_budget(struct mqnic_sched *sched, int ch);
+void mqnic_scheduler_channel_set_pkt_limit(struct mqnic_sched *sched, int ch, int val);
+int mqnic_scheduler_channel_get_pkt_limit(struct mqnic_sched *sched, int ch);
+void mqnic_scheduler_channel_set_data_limit(struct mqnic_sched *sched, int ch, int val);
+int mqnic_scheduler_channel_get_data_limit(struct mqnic_sched *sched, int ch);
+int mqnic_scheduler_queue_enable(struct mqnic_sched *sched, int queue);
+void mqnic_scheduler_queue_disable(struct mqnic_sched *sched, int queue);
+void mqnic_scheduler_queue_set_pause(struct mqnic_sched *sched, int queue, int val);
+int mqnic_scheduler_queue_get_pause(struct mqnic_sched *sched, int queue);
 
 // mqnic_ptp.c
 void mqnic_register_phc(struct mqnic_dev *mdev);
