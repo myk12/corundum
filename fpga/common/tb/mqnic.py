@@ -1314,18 +1314,18 @@ class NetDev:
             return
 
         for k in range(self.rxq_count):
-            cq = Cq(self.interface)
+            cq = self.interface.create_cq()
             await cq.open(self.interface.eq[k % len(self.interface.eq)], 1024)
             await cq.arm()
-            rxq = Rxq(self.interface)
+            rxq = self.interface.create_rxq()
             await rxq.open(self, cq, self.rx_ring_size, 4)
             self.rxq.append(rxq)
 
         for k in range(self.txq_count):
-            cq = Cq(self.interface)
+            cq = self.interface.create_cq()
             await cq.open(self.interface.eq[k % len(self.interface.eq)], 1024)
             await cq.arm()
-            txq = Txq(self.interface)
+            txq = self.interface.create_txq()
             await txq.open(self, cq, self.tx_ring_size, 4)
             self.txq.append(txq)
 
@@ -1748,7 +1748,7 @@ class Interface:
         # create EQs
         self.eq = []
         for k in range(self.eq_res.get_count()):
-            eq = Eq(self)
+            eq = self.create_eq()
             await eq.open(self.index, 1024)
             self.eq.append(eq)
             await eq.arm()
@@ -1787,6 +1787,18 @@ class Interface:
 
     async def set_rx_queue_map_indir_table(self, port, index, val):
         await self.rx_queue_map_indir_table_regs[port].write_dword(index*4, val)
+
+    def create_eq(self):
+        return Eq(self)
+
+    def create_cq(self):
+        return Cq(self)
+
+    def create_txq(self):
+        return Txq(self)
+
+    def create_rxq(self):
+        return Rxq(self)
 
 
 class Interrupt:
