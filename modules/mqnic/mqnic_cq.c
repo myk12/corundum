@@ -90,7 +90,7 @@ int mqnic_open_cq(struct mqnic_cq *cq, struct mqnic_eq *eq, int size)
 	return 0;
 
 fail:
-	mqnic_close_eq(eq);
+	mqnic_close_cq(cq);
 	return ret;
 }
 
