@@ -15,7 +15,6 @@ static void usage(char *name)
         "usage: %s [options]\n"
         " -d name    device to open (/dev/mqnic0)\n"
         " -i number  interface\n"
-        " -P number  port\n"
         " -v         verbose output\n",
         name);
 }
@@ -29,8 +28,6 @@ int main(int argc, char *argv[])
     char *device = NULL;
     struct mqnic *dev;
     int interface = 0;
-    int port = 0;
-    int sched_block = 0;
     int verbose = 0;
 
     name = strrchr(argv[0], '/');
@@ -45,9 +42,6 @@ int main(int argc, char *argv[])
             break;
         case 'i':
             interface = atoi(optarg);
-            break;
-        case 'P':
-            port = atoi(optarg);
             break;
         case 'v':
             verbose++;
@@ -250,9 +244,24 @@ int main(int argc, char *argv[])
 
     for (int p = 0; p < dev_interface->port_count; p++)
     {
+        struct mqnic_port *dev_port = dev_interface->ports[p];
+
+        printf("Port-level register blocks (port %d):\n", p);
+        for (struct mqnic_reg_block *rb = dev_port->rb_list; rb->regs; rb++)
+            printf(" type 0x%08x (v %d.%d.%d.%d)\n", rb->type, rb->version >> 24,
+                    (rb->version >> 16) & 0xff, (rb->version >> 8) & 0xff, rb->version & 0xff);
+
         printf("Port %d RX queue map RSS mask: 0x%08x\n", p, mqnic_interface_get_rx_queue_map_rss_mask(dev_interface, p));
         printf("Port %d RX queue map app mask: 0x%08x\n", p, mqnic_interface_get_rx_queue_map_app_mask(dev_interface, p));
         printf("Port %d RX indirection table size: %d\n", p, dev_interface->rx_queue_map_indir_table_size);
+
+        printf("Port %d features: 0x%08x\n", p, dev_port->port_features);
+        printf("Port %d TX ctrl: 0x%08x\n", p, mqnic_port_get_tx_ctrl(dev_port));
+        printf("Port %d RX ctrl: 0x%08x\n", p, mqnic_port_get_rx_ctrl(dev_port));
+        printf("Port %d FC ctrl: 0x%08x\n", p, mqnic_port_get_fc_ctrl(dev_port));
+        printf("Port %d LFC ctrl: 0x%08x\n", p, mqnic_port_get_lfc_ctrl(dev_port));
+        for (int k = 0; k < 8; k++)
+            printf("Port %d PFC ctrl %d: 0x%08x\n", p, k, mqnic_port_get_pfc_ctrl(dev_port, k));
 
         printf("Port %d RX indirection table:\n", p);
         for (int k = 0; k < dev_interface->rx_queue_map_indir_table_size; k += 8)
@@ -265,115 +274,73 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (port < 0 || port >= dev_interface->port_count)
+    for (int s = 0; s < dev_interface->sched_block_count; s++)
     {
-        fprintf(stderr, "Port out of range\n");
-        ret = -1;
-        goto err;
-    }
+        struct mqnic_sched_block *dev_sched_block = dev_interface->sched_blocks[s];
 
-    struct mqnic_port *dev_port = dev_interface->ports[port];
+        printf("Scheduler block-level register blocks (scheduler block %d):\n", s);
+        for (struct mqnic_reg_block *rb = dev_sched_block->rb_list; rb->regs; rb++)
+            printf(" type 0x%08x (v %d.%d.%d.%d)\n", rb->type, rb->version >> 24,
+                    (rb->version >> 16) & 0xff, (rb->version >> 8) & 0xff, rb->version & 0xff);
 
-    if (!dev_port)
-    {
-        fprintf(stderr, "Invalid port\n");
-        ret = -1;
-        goto err;
-    }
+        printf("Sched count: %d\n", dev_sched_block->sched_count);
 
-    printf("Port-level register blocks:\n");
-    for (struct mqnic_reg_block *rb = dev_port->rb_list; rb->regs; rb++)
-        printf(" type 0x%08x (v %d.%d.%d.%d)\n", rb->type, rb->version >> 24,
-                (rb->version >> 16) & 0xff, (rb->version >> 8) & 0xff, rb->version & 0xff);
-
-    printf("Port features: 0x%08x\n", dev_port->port_features);
-    printf("Port TX ctrl: 0x%08x\n", mqnic_port_get_tx_ctrl(dev_port));
-    printf("Port RX ctrl: 0x%08x\n", mqnic_port_get_rx_ctrl(dev_port));
-    printf("Port FC ctrl: 0x%08x\n", mqnic_port_get_fc_ctrl(dev_port));
-    printf("Port LFC ctrl: 0x%08x\n", mqnic_port_get_lfc_ctrl(dev_port));
-    for (int k = 0; k < 8; k++)
-        printf("Port PFC ctrl %d: 0x%08x\n", k, mqnic_port_get_pfc_ctrl(dev_port, k));
-
-    sched_block = port;
-
-    if (sched_block < 0 || sched_block >= dev_interface->sched_block_count)
-    {
-        fprintf(stderr, "Scheduler block out of range\n");
-        ret = -1;
-        goto err;
-    }
-
-    struct mqnic_sched_block *dev_sched_block = dev_interface->sched_blocks[sched_block];
-
-    if (!dev_sched_block)
-    {
-        fprintf(stderr, "Invalid scheduler block\n");
-        ret = -1;
-        goto err;
-    }
-
-    printf("Scheduler block-level register blocks:\n");
-    for (struct mqnic_reg_block *rb = dev_sched_block->rb_list; rb->regs; rb++)
-        printf(" type 0x%08x (v %d.%d.%d.%d)\n", rb->type, rb->version >> 24,
-                (rb->version >> 16) & 0xff, (rb->version >> 8) & 0xff, rb->version & 0xff);
-
-    printf("Sched count: %d\n", dev_sched_block->sched_count);
-
-    for (struct mqnic_reg_block *rb = dev_sched_block->rb_list; rb->regs; rb++)
-    {
-        if (rb->type == MQNIC_RB_SCHED_RR_TYPE && rb->version == MQNIC_RB_SCHED_RR_VER)
+        for (struct mqnic_reg_block *rb = dev_sched_block->rb_list; rb->regs; rb++)
         {
-            uint32_t val;
-            int ch_count;
-            int fc_scale;
-
-            printf("Round-robin scheduler\n");
-
-            printf("Sched queue count: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_QUEUE_COUNT));
-            printf("Sched queue stride: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_QUEUE_STRIDE));
-            printf("Sched control: 0x%08x\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CTRL));
-
-            val = mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CFG);
-            printf("Sched TC count: %d\n", val & 0xff);
-            printf("Sched port count: %d\n", (val >> 8) & 0xff);
-            ch_count = (val & 0xff) * ((val >> 8) & 0xff);
-            printf("Sched channel count: %d\n", ch_count);
-            fc_scale = 1 << ((val >> 16) & 0xff);
-            printf("Sched FC scale: %d\n", fc_scale);
-
-            for (int k = 0; k < ch_count; k++)
+            if (rb->type == MQNIC_RB_SCHED_RR_TYPE && rb->version == MQNIC_RB_SCHED_RR_VER)
             {
-                printf("Sched CH%d control: 0x%08x\n", k, mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_CTRL));
-                printf("Sched CH%d dest: 0x%04x\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC1_DEST));
-                printf("Sched CH%d pkt budget: %d\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC1_PB));
-                printf("Sched CH%d data budget: %d\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC2_DB) * fc_scale);
-                printf("Sched CH%d pkt limit: %d\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC2_PL));
-                printf("Sched CH%d data limit: %d\n", k, mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC3_DL) * fc_scale);
+                uint32_t val;
+                int ch_count;
+                int fc_scale;
+
+                printf("Round-robin scheduler\n");
+
+                printf("Sched queue count: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_QUEUE_COUNT));
+                printf("Sched queue stride: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_QUEUE_STRIDE));
+                printf("Sched control: 0x%08x\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CTRL));
+
+                val = mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CFG);
+                printf("Sched TC count: %d\n", val & 0xff);
+                printf("Sched port count: %d\n", (val >> 8) & 0xff);
+                ch_count = (val & 0xff) * ((val >> 8) & 0xff);
+                printf("Sched channel count: %d\n", ch_count);
+                fc_scale = 1 << ((val >> 16) & 0xff);
+                printf("Sched FC scale: %d\n", fc_scale);
+
+                for (int k = 0; k < ch_count; k++)
+                {
+                    printf("Sched CH%d control: 0x%08x\n", k, mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_CTRL));
+                    printf("Sched CH%d dest: 0x%04x\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC1_DEST));
+                    printf("Sched CH%d pkt budget: %d\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC1_PB));
+                    printf("Sched CH%d data budget: %d\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC2_DB) * fc_scale);
+                    printf("Sched CH%d pkt limit: %d\n", k, mqnic_reg_read16(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC2_PL));
+                    printf("Sched CH%d data limit: %d\n", k, mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_RR_REG_CH_STRIDE*k + MQNIC_RB_SCHED_RR_REG_CH0_FC3_DL) * fc_scale);
+                }
             }
-        }
-        else if (rb->type == MQNIC_RB_SCHED_CTRL_TDMA_TYPE && rb->version == MQNIC_RB_SCHED_CTRL_TDMA_VER)
-        {
-            printf("TDMA scheduler controller\n");
+            else if (rb->type == MQNIC_RB_SCHED_CTRL_TDMA_TYPE && rb->version == MQNIC_RB_SCHED_CTRL_TDMA_VER)
+            {
+                printf("TDMA scheduler controller\n");
 
-            printf("Sched queue count: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CH_COUNT));
-            printf("Sched queue stride: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CH_STRIDE));
-            printf("Sched control: 0x%08x\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CTRL));
-            printf("Sched timeslot count: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_TS_COUNT));
-        }
-        else if (rb->type == MQNIC_RB_TDMA_SCH_TYPE && rb->version == MQNIC_RB_TDMA_SCH_VER)
-        {
-            printf("TDMA scheduler\n");
+                printf("Sched queue count: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CH_COUNT));
+                printf("Sched queue stride: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CH_STRIDE));
+                printf("Sched control: 0x%08x\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_CTRL));
+                printf("Sched timeslot count: %d\n", mqnic_reg_read32(rb->regs, MQNIC_RB_SCHED_CTRL_TDMA_REG_TS_COUNT));
+            }
+            else if (rb->type == MQNIC_RB_TDMA_SCH_TYPE && rb->version == MQNIC_RB_TDMA_SCH_VER)
+            {
+                printf("TDMA scheduler\n");
 
-            uint32_t val = mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_CTRL);
-            printf("TDMA control: 0x%08x\n", val);
-            printf("TDMA timeslot count: %d\n", val >> 16);
+                uint32_t val = mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_CTRL);
+                printf("TDMA control: 0x%08x\n", val);
+                printf("TDMA timeslot count: %d\n", val >> 16);
 
-            printf("TDMA schedule start:  %ld.%09d s\n", mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_SCH_START_SEC_L) +
-                    (((int64_t)mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_SCH_START_SEC_H)) << 32),
-                    mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_SCH_START_NS));
-            printf("TDMA schedule period: %d ns\n", mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_SCH_PERIOD_NS));
-            printf("TDMA timeslot period: %d ns\n", mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_TS_PERIOD_NS));
-            printf("TDMA active period:   %d ns\n", mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_ACTIVE_PERIOD_NS));
+                printf("TDMA schedule start:  %ld.%09d s\n", mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_SCH_START_SEC_L) +
+                        (((int64_t)mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_SCH_START_SEC_H)) << 32),
+                        mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_SCH_START_NS));
+                printf("TDMA schedule period: %d ns\n", mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_SCH_PERIOD_NS));
+                printf("TDMA timeslot period: %d ns\n", mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_TS_PERIOD_NS));
+                printf("TDMA active period:   %d ns\n", mqnic_reg_read32(rb->regs, MQNIC_RB_TDMA_SCH_REG_ACTIVE_PERIOD_NS));
+            }
         }
     }
 
@@ -505,48 +472,53 @@ int main(int argc, char *argv[])
         printf("RXQ %4d  0x%016lx  %-5s  %d  %2d  %4d  %6d  %6d  %6d\n", k, base_addr, flags, log_desc_block_size, log_queue_size, cqn, prod_ptr, cons_ptr, occupancy);
     }
 
-    for (int k = 0; k < dev_sched_block->sched_count; k++)
+    for (int s = 0; s < dev_interface->sched_block_count; s++)
     {
-        struct mqnic_sched *sched = dev_sched_block->sched[k];
-        printf("Scheduler block %d scheduler %d\n", sched_block, k);
-        printf("Sched  Queue   Flags");
-        for (int k = 0; k < sched->port_count; k++)
-            printf("  Port %2d", k);
-        printf("\n");
-        for (int l = 0; l < sched->queue_count; l++)
+        struct mqnic_sched_block *dev_sched_block = dev_interface->sched_blocks[s];
+
+        for (int k = 0; k < dev_sched_block->sched_count; k++)
         {
-            volatile uint8_t *base = sched->regs + l*sched->queue_stride;
-            uint32_t val = mqnic_reg_read32(base, 0);
-            char flags[8] = "---";
-
-            int enable = val & MQNIC_SCHED_RR_QUEUE_EN;
-            if (enable) flags[0] = 'e';
-            if (val & MQNIC_SCHED_RR_QUEUE_PAUSE)
-                flags[1] = 'p';
-            if (val & MQNIC_SCHED_RR_QUEUE_ACTIVE)
-                flags[2] = 'a';
-
-            if (!enable && !verbose)
-                continue;
-
-            printf("SCH %2d Q %4d  %-5s", k, l, flags);
-
+            struct mqnic_sched *sched = dev_sched_block->sched[k];
+            printf("Scheduler block %d scheduler %d\n", s, k);
+            printf("Scheduler Queue   Flags");
             for (int k = 0; k < sched->port_count; k++)
+                printf("  Port %2d", k);
+            printf("\n");
+            for (int l = 0; l < sched->queue_count; l++)
             {
+                volatile uint8_t *base = sched->regs + l*sched->queue_stride;
+                uint32_t val = mqnic_reg_read32(base, 0);
                 char flags[8] = "---";
 
-                int tc = (val >> (k*8)) & MQNIC_SCHED_RR_PORT_TC;
-                if ((val >> (k*8)) & MQNIC_SCHED_RR_PORT_EN)
-                    flags[0] = 'e';
-                if ((val >> (k*8)) & MQNIC_SCHED_RR_PORT_PAUSE)
+                int enable = val & MQNIC_SCHED_RR_QUEUE_EN;
+                if (enable) flags[0] = 'e';
+                if (val & MQNIC_SCHED_RR_QUEUE_PAUSE)
                     flags[1] = 'p';
-                if ((val >> (k*8)) & MQNIC_SCHED_RR_PORT_TC)
-                    flags[2] = 's';
+                if (val & MQNIC_SCHED_RR_QUEUE_ACTIVE)
+                    flags[2] = 'a';
 
-                printf("  %-3s TC%d", flags, tc);
+                if (!enable && !verbose)
+                    continue;
+
+                printf("SCH %2d/%2d Q %4d  %-5s", s, k, l, flags);
+
+                for (int k = 0; k < sched->port_count; k++)
+                {
+                    char flags[8] = "---";
+
+                    int tc = (val >> (k*8)) & MQNIC_SCHED_RR_PORT_TC;
+                    if ((val >> (k*8)) & MQNIC_SCHED_RR_PORT_EN)
+                        flags[0] = 'e';
+                    if ((val >> (k*8)) & MQNIC_SCHED_RR_PORT_PAUSE)
+                        flags[1] = 'p';
+                    if ((val >> (k*8)) & MQNIC_SCHED_RR_PORT_TC)
+                        flags[2] = 's';
+
+                    printf("  %-3s TC%d", flags, tc);
+                }
+
+                printf(" (0x%08x)\n", val);
             }
-
-            printf(" (0x%08x)\n", val);
         }
     }
 
