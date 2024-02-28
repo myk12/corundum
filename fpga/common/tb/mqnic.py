@@ -1091,29 +1091,123 @@ class Rxq:
         await ring.refill_buffers()
 
 
-class BaseScheduler:
-    def __init__(self, port, index, rb):
-        self.port = port
-        self.log = port.log
-        self.interface = port.interface
-        self.driver = port.interface.driver
+class SchedulerPort:
+    def __init__(self, sched, index):
+        self.sched = sched
         self.index = index
-        self.rb = rb
-        self.hw_regs = None
+
+        self.tc_count = sched.tc_count
+        self.fc_scale = sched.fc_scale
 
     async def init(self):
         pass
 
     async def enable(self):
+        await self.sched.enable()
+
+    async def disable(self):
+        await self.sched.disable()
+
+    async def enable_ch(self, tc):
+        await self.sched.enable_ch(self.index, tc)
+
+    async def disable_ch(self, tc):
+        await self.sched.disable_ch(self.index, tc)
+
+    async def enable_queue(self, queue):
+        await self.sched.enable_queue(queue)
+        await self.sched.enable_queue_port(queue, self.index)
+
+    async def disable_queue(self, queue):
+        await self.sched.disable_queue_port(queue, self.index)
+        await self.sched.disable_queue(queue)
+
+    async def get_queue_enable(self, queue):
+        return await self.sched.get_queue_port_enable(queue, self.index)
+
+    async def set_queue_pause(self, queue, val):
+        await self.set_queue_port_pause(queue, self.index, val)
+
+    async def get_queue_puase(self, queue):
+        return await self.sched.get_queue_port_puase(queue, self.index)
+
+    async def set_queue_tc(self, queue, val):
+        await self.set_queue_port_tc(queue, self.index, val)
+
+    async def get_queue_tc(self, queue):
+        return await self.sched.get_queue_port_tc(queue, self.index)
+
+    async def get_ch_dest(self, tc):
+        return await self.sched.get_ch_dest(self.index, tc)
+
+    async def set_ch_dest(self, tc, val):
+        await self.sched.set_ch_dest(self.index, tc, val)
+
+    async def get_ch_pkt_budget(self, tc):
+        return await self.sched.get_ch_pkt_budget(self.index, tc)
+
+    async def set_ch_pkt_budget(self, tc, val):
+        await self.sched.set_ch_pkt_budget(self.index, tc, val)
+
+    async def get_ch_data_budget(self, tc):
+        return await self.sched.get_ch_data_budget(self.index, tc)
+
+    async def set_ch_data_budget(self, tc, val):
+        await self.sched.set_ch_data_budget(self.index, tc, val)
+
+    async def get_ch_pkt_limit(self, tc):
+        return await self.sched.get_ch_pkt_limit(self.index, tc)
+
+    async def set_ch_pkt_limit(self, tc, val):
+        await self.sched.set_ch_pkt_limit(self.index, tc, val)
+
+    async def get_ch_data_limit(self, tc):
+        return await self.sched.get_ch_data_limit(self.index, tc)
+
+    async def set_ch_data_limit(self, tc, val):
+        await self.sched.set_ch_data_limit(self.index, tc, val)
+
+
+class BaseScheduler:
+    def __init__(self, block, index, rb):
+        self.block = block
+        self.log = block.log
+        self.interface = block.interface
+        self.driver = block.interface.driver
+        self.index = index
+        self.rb = rb
+        self.hw_regs = None
+
+        self.tc_count = None
+        self.fc_scale = None
+
+        self.enable_count = 0
+
+        self.sched_ports = []
+
+    async def init(self):
+        pass
+
+    async def enable(self):
+        if self.enable_count == 0:
+            await self._enable()
+        self.enable_count += 1
+
+    async def _enable(self):
         pass
 
     async def disable(self):
+        self.enable_count -= 1
+        if self.enable_count == 0:
+            await self._disable()
+
+    async def _disable(self):
         pass
 
 
 class SchedulerRoundRobin(BaseScheduler):
-    def __init__(self, port, index, rb):
-        super().__init__(port, index, rb)
+    def __init__(self, block, index, rb):
+        super().__init__(block, index, rb)
 
         self.queue_count = None
         self.queue_stride = None
@@ -1122,6 +1216,8 @@ class SchedulerRoundRobin(BaseScheduler):
         self.port_count = None
         self.channel_count = None
         self.fc_scale = None
+
+        self.sched_ports = []
 
     async def init(self):
         await super().init()
@@ -1140,23 +1236,52 @@ class SchedulerRoundRobin(BaseScheduler):
         self.channel_count = self.port_count * self.tc_count
         self.fc_scale = 1 << ((val >> 16) & 0xff)
 
-    async def enable(self):
+        for k in range(self.port_count):
+            sched_port = SchedulerPort(self, k)
+            self.sched_ports.append(sched_port)
+            self.interface.register_sched_port(sched_port)
+
+    async def _enable(self):
         await self.set_ctrl(1)
 
-    async def disable(self):
+    async def _disable(self):
         await self.set_ctrl(0)
 
-    async def enable_ch(self, ch):
-        await self.set_ch_ctrl(ch, 1)
+    async def enable_ch(self, port, tc):
+        await self.set_ch_ctrl(port, tc, 1)
 
-    async def disable_ch(self, ch):
-        await self.set_ch_ctrl(ch, 0)
+    async def disable_ch(self, port, tc):
+        await self.set_ch_ctrl(port, tc, 0)
 
     async def enable_queue(self, queue):
         await self.set_queue_ctrl(queue, MQNIC_SCHED_RR_CMD_SET_QUEUE_ENABLE | 1)
 
     async def disable_queue(self, queue):
         await self.set_queue_ctrl(queue, MQNIC_SCHED_RR_CMD_SET_QUEUE_ENABLE | 0)
+
+    async def enable_queue_port(self, queue, port):
+        await self.set_queue_ctrl(queue, MQNIC_SCHED_RR_CMD_SET_PORT_ENABLE | (port << 8) | 1)
+
+    async def disable_queue_port(self, queue, port):
+        await self.set_queue_ctrl(queue, MQNIC_SCHED_RR_CMD_SET_PORT_ENABLE | (port << 8) | 0)
+
+    async def get_queue_port_enable(self, queue, port):
+        ctrl = await self.get_queue_ctrl(queue)
+        return bool(ctrl & MQNIC_SCHED_RR_QUEUE_EN) and bool((ctrl >> 8*port) & MQNIC_SCHED_RR_PORT_EN)
+
+    async def set_queue_port_pause(self, queue, port, val):
+        await self.set_queue_ctrl(queue, MQNIC_SCHED_RR_CMD_SET_PORT_PAUSE | (port << 8) | bool(val))
+
+    async def get_queue_port_pause(self, queue, port):
+        ctrl = await self.get_queue_ctrl(queue)
+        return bool((ctrl >> 8*port) & MQNIC_SCHED_RR_PORT_PAUSE)
+
+    async def set_queue_port_tc(self, queue, port, val):
+        await self.set_queue_ctrl(queue, MQNIC_SCHED_RR_CMD_SET_PORT_TC | (port << 8) | (val & 0x7))
+
+    async def get_queue_port_tc(self, queue, port):
+        ctrl = await self.get_queue_ctrl(queue)
+        return bool((ctrl >> 8*port) & MQNIC_SCHED_RR_PORT_TC)
 
     async def disable_all_queues(self):
         for k in range(self.queue_count):
@@ -1171,41 +1296,53 @@ class SchedulerRoundRobin(BaseScheduler):
     async def set_ctrl(self, val):
         await self.rb.write_dword(MQNIC_RB_SCHED_RR_REG_CTRL, val)
 
-    async def get_ch_ctrl(self, ch):
+    async def get_ch_ctrl(self, port, tc):
+        ch = port*self.tc_count + tc
         return await self.rb.read_dword(MQNIC_RB_SCHED_RR_REG_CH0_CTRL + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE)
 
-    async def set_ch_ctrl(self, ch, val):
+    async def set_ch_ctrl(self, port, tc, val):
+        ch = port*self.tc_count + tc
         await self.rb.write_dword(MQNIC_RB_SCHED_RR_REG_CH0_CTRL + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE, val)
 
-    async def get_ch_dest(self, ch):
+    async def get_ch_dest(self, port, tc):
+        ch = port*self.tc_count + tc
         return await self.rb.read_word(MQNIC_RB_SCHED_RR_REG_CH0_FC1_DEST + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE)
 
-    async def set_ch_dest(self, ch, val):
+    async def set_ch_dest(self, port, tc, val):
+        ch = port*self.tc_count + tc
         await self.rb.write_word(MQNIC_RB_SCHED_RR_REG_CH0_FC1_DEST + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE, val)
 
-    async def get_ch_pkt_budget(self, ch):
+    async def get_ch_pkt_budget(self, port, tc):
+        ch = port*self.tc_count + tc
         return await self.rb.read_word(MQNIC_RB_SCHED_RR_REG_CH0_FC1_PB + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE)
 
-    async def set_ch_pkt_budget(self, ch, val):
+    async def set_ch_pkt_budget(self, port, tc, val):
+        ch = port*self.tc_count + tc
         await self.rb.write_word(MQNIC_RB_SCHED_RR_REG_CH0_FC1_PB + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE, val)
 
-    async def get_ch_data_budget(self, ch):
+    async def get_ch_data_budget(self, port, tc):
+        ch = port*self.tc_count + tc
         return await self.rb.read_word(MQNIC_RB_SCHED_RR_REG_CH0_FC2_DB + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE) * self.fc_scale
 
-    async def set_ch_data_budget(self, ch, val):
+    async def set_ch_data_budget(self, port, tc, val):
+        ch = port*self.tc_count + tc
         val = (val + self.fc_scale-1) // self.fc_scale
         await self.rb.write_word(MQNIC_RB_SCHED_RR_REG_CH0_FC2_DB + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE, val)
 
-    async def get_ch_pkt_limit(self, ch):
+    async def get_ch_pkt_limit(self, port, tc):
+        ch = port*self.tc_count + tc
         return await self.rb.read_word(MQNIC_RB_SCHED_RR_REG_CH0_FC2_PL + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE)
 
-    async def set_ch_pkt_limit(self, ch, val):
+    async def set_ch_pkt_limit(self, port, tc, val):
+        ch = port*self.tc_count + tc
         await self.rb.write_word(MQNIC_RB_SCHED_RR_REG_CH0_FC2_PL + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE, val)
 
-    async def get_ch_data_limit(self, ch):
+    async def get_ch_data_limit(self, port, tc):
+        ch = port*self.tc_count + tc
         return await self.rb.read_dword(MQNIC_RB_SCHED_RR_REG_CH0_FC3_DL + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE) * self.fc_scale
 
-    async def set_ch_data_limit(self, ch, val):
+    async def set_ch_data_limit(self, port, tc, val):
+        ch = port*self.tc_count + tc
         val = (val + self.fc_scale-1) // self.fc_scale
         await self.rb.write_dword(MQNIC_RB_SCHED_RR_REG_CH0_FC3_DL + ch*MQNIC_RB_SCHED_RR_REG_CH_STRIDE, val)
 
@@ -1217,18 +1354,18 @@ class SchedulerRoundRobin(BaseScheduler):
 
 
 class SchedulerControlTdma(BaseScheduler):
-    def __init__(self, port, index, rb):
-        super().__init__(port, index, rb)
+    def __init__(self, block, index, rb):
+        super().__init__(block, index, rb)
 
     async def init(self):
         await super().init()
         offset = await self.rb.read_dword(MQNIC_RB_SCHED_CTRL_TDMA_REG_OFFSET)
         self.hw_regs = self.rb.parent.create_window(offset)
 
-    async def enable(self):
+    async def _enable(self):
         pass
 
-    async def disable(self):
+    async def _disable(self):
         pass
 
 
@@ -1281,7 +1418,7 @@ class SchedulerBlock:
 
 
 class NetDev:
-    def __init__(self, interface, index, port, sched_block):
+    def __init__(self, interface, index, port):
         self.interface = interface
         self.log = interface.log
         self.driver = interface.driver
@@ -1289,7 +1426,7 @@ class NetDev:
         self.port_up = False
 
         self.port = port
-        self.sched_block = sched_block
+        self.sched_port = interface.alloc_sched_port()
 
         self.txq_count = min(interface.txq_res.get_count(), 4)
         self.rxq_count = min(interface.rxq_res.get_count(), 4)
@@ -1347,18 +1484,19 @@ class NetDev:
 
         # configure scheduler
         for q in self.txq:
-            await self.sched_block.schedulers[0].enable_queue(q.index)
+            await self.sched_port.enable_queue(q.index)
 
         # configure scheduler flow control
-        await self.sched_block.schedulers[0].set_ch_pkt_budget(0, 1)
-        await self.sched_block.schedulers[0].set_ch_data_budget(0, self.interface.max_tx_mtu)
-        await self.sched_block.schedulers[0].set_ch_pkt_limit(0, 0xFFFF)
-        await self.sched_block.schedulers[0].set_ch_data_limit(0, self.interface.tx_fifo_depth)
+        await self.sched_port.set_ch_dest(0, self.port.index << 4 | 0)
+        await self.sched_port.set_ch_pkt_budget(0, 1)
+        await self.sched_port.set_ch_data_budget(0, self.interface.max_tx_mtu)
+        await self.sched_port.set_ch_pkt_limit(0, 0xFFFF)
+        await self.sched_port.set_ch_data_limit(0, self.interface.tx_fifo_depth)
 
-        await self.sched_block.schedulers[0].enable_ch(0)
+        await self.sched_port.enable_ch(0)
 
         # enable scheduler
-        await self.sched_block.activate()
+        await self.sched_port.enable()
 
         # enable receive
         await self.port.set_rx_ctrl(MQNIC_PORT_RX_CTRL_EN)
@@ -1384,13 +1522,13 @@ class NetDev:
 
         # configure scheduler
         for q in self.txq:
-            await self.sched_block.schedulers[0].disable_queue(q.index)
+            await self.sched_port.disable_queue(q.index)
 
         # configure scheduler flow control
-        await self.sched_block.schedulers[0].disable_ch(0)
+        await self.sched_port.disable_ch(0)
 
         # enable scheduler
-        await self.sched_block.deactivate()
+        await self.sched_port.disable()
 
         # wait for all writes to complete
         await self.hw_regs.read_dword(0)
@@ -1605,6 +1743,9 @@ class Interface:
         self.sched_blocks = []
         self.ndevs = []
 
+        self.sched_ports = []
+        self.free_sched_ports = []
+
         self.interrupt_running = False
         self.interrupt_pending = 0
 
@@ -1755,7 +1896,7 @@ class Interface:
 
         # create netdevs
         for k in range(self.port_count):
-            ndev = NetDev(self, k, self.ports[k], self.sched_blocks[k])
+            ndev = NetDev(self, k, self.ports[k])
             await ndev.init()
             self.ndevs.append(ndev)
 
@@ -1799,6 +1940,19 @@ class Interface:
 
     def create_rxq(self):
         return Rxq(self)
+
+    def register_sched_port(self, sched_port):
+        self.sched_ports.append(sched_port)
+        self.free_sched_ports.append(sched_port)
+
+    def alloc_sched_port(self):
+        return self.free_sched_ports.pop(0)
+
+    def free_sched_port(self, sched_port):
+        assert sched_port is not None
+        assert sched_port in self.sched_ports
+        assert sched_port not in self.free_sched_ports
+        self.free_sched_ports.append(sched_port)
 
 
 class Interrupt:
