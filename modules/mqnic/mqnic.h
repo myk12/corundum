@@ -336,6 +336,8 @@ struct mqnic_sched {
 	int channel_count;
 	int fc_scale;
 
+	int enable_count;
+
 	u8 __iomem *hw_addr;
 };
 

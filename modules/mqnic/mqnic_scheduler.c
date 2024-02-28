@@ -5,6 +5,16 @@
 
 #include "mqnic.h"
 
+static void _mqnic_scheduler_enable(struct mqnic_sched *sched)
+{
+	iowrite32(1, sched->rb->regs + MQNIC_RB_SCHED_RR_REG_CTRL);
+}
+
+static void _mqnic_scheduler_disable(struct mqnic_sched *sched)
+{
+	iowrite32(0, sched->rb->regs + MQNIC_RB_SCHED_RR_REG_CTRL);
+}
+
 struct mqnic_sched *mqnic_create_scheduler(struct mqnic_sched_block *block,
 		int index, struct mqnic_reg_block *rb)
 {
@@ -37,6 +47,8 @@ struct mqnic_sched *mqnic_create_scheduler(struct mqnic_sched_block *block,
 	sched->channel_count = sched->tc_count * sched->port_count;
 	sched->fc_scale = 1 << ((val >> 16) & 0xff);
 
+	sched->enable_count = 0;
+
 	dev_info(dev, "Scheduler type: 0x%08x", sched->type);
 	dev_info(dev, "Scheduler offset: 0x%08x", sched->offset);
 	dev_info(dev, "Scheduler queue count: %d", sched->queue_count);
@@ -46,21 +58,24 @@ struct mqnic_sched *mqnic_create_scheduler(struct mqnic_sched_block *block,
 	dev_info(dev, "Scheduler channel count: %d", sched->channel_count);
 	dev_info(dev, "Scheduler FC scale: %d", sched->fc_scale);
 
-	mqnic_scheduler_disable(sched);
+	_mqnic_scheduler_disable(sched);
 
 	return sched;
 }
 
 void mqnic_destroy_scheduler(struct mqnic_sched *sched)
 {
-	mqnic_scheduler_disable(sched);
+	_mqnic_scheduler_disable(sched);
 
 	kfree(sched);
 }
 
 int mqnic_scheduler_enable(struct mqnic_sched *sched)
 {
-	iowrite32(1, sched->rb->regs + MQNIC_RB_SCHED_RR_REG_CTRL);
+	if (sched->enable_count == 0)
+		_mqnic_scheduler_enable(sched);
+
+	sched->enable_count++;
 
 	return 0;
 }
@@ -68,7 +83,10 @@ EXPORT_SYMBOL(mqnic_scheduler_enable);
 
 void mqnic_scheduler_disable(struct mqnic_sched *sched)
 {
-	iowrite32(0, sched->rb->regs + MQNIC_RB_SCHED_RR_REG_CTRL);
+	sched->enable_count--;
+
+	if (sched->enable_count == 0)
+		_mqnic_scheduler_disable(sched);
 }
 EXPORT_SYMBOL(mqnic_scheduler_disable);
 
