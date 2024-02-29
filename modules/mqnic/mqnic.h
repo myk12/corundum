@@ -442,7 +442,6 @@ struct mqnic_priv {
 
 	spinlock_t stats_lock;
 
-	int index;
 	bool registered;
 	bool port_up;
 
@@ -541,8 +540,7 @@ int mqnic_start_port(struct net_device *ndev);
 void mqnic_stop_port(struct net_device *ndev);
 int mqnic_update_indir_table(struct net_device *ndev);
 void mqnic_update_stats(struct net_device *ndev);
-struct net_device *mqnic_create_netdev(struct mqnic_if *interface, int index,
-		struct mqnic_port *port);
+struct net_device *mqnic_create_netdev(struct mqnic_if *interface, struct mqnic_port *port);
 void mqnic_destroy_netdev(struct net_device *ndev);
 
 // mqnic_sched_block.c

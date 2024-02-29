@@ -272,7 +272,7 @@ struct mqnic_if *mqnic_create_interface(struct mqnic_dev *mdev, int index, u8 __
 	// create net_devices
 	interface->ndev_count = interface->port_count;
 	for (k = 0; k < interface->ndev_count; k++) {
-		struct net_device *ndev = mqnic_create_netdev(interface, k,
+		struct net_device *ndev = mqnic_create_netdev(interface,
 				interface->port[k]);
 		if (IS_ERR_OR_NULL(ndev)) {
 			ret = PTR_ERR(ndev);

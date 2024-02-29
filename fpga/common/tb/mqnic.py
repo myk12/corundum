@@ -1418,11 +1418,10 @@ class SchedulerBlock:
 
 
 class NetDev:
-    def __init__(self, interface, index, port):
+    def __init__(self, interface, port):
         self.interface = interface
         self.log = interface.log
         self.driver = interface.driver
-        self.index = index
         self.port_up = False
 
         self.port = port
@@ -1900,8 +1899,8 @@ class Interface:
             await eq.arm()
 
         # create netdevs
-        for k in range(self.port_count):
-            ndev = NetDev(self, k, self.ports[k])
+        for port in self.ports:
+            ndev = NetDev(self, port)
             await ndev.init()
             self.ndevs.append(ndev)
 

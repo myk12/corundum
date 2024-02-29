@@ -19,8 +19,7 @@ int mqnic_start_port(struct net_device *ndev)
 	int ret;
 	u32 desc_block_size;
 
-	netdev_info(ndev, "%s on interface %d netdev %d", __func__,
-			priv->interface->index, priv->index);
+	netdev_info(ndev, "%s on interface %d", __func__, iface->index);
 
 	netif_set_real_num_tx_queues(ndev, priv->txq_count);
 	netif_set_real_num_rx_queues(ndev, priv->rxq_count);
@@ -213,8 +212,7 @@ void mqnic_stop_port(struct net_device *ndev)
 	struct radix_tree_iter iter;
 	void **slot;
 
-	netdev_info(ndev, "%s on interface %d netdev %d", __func__,
-			priv->interface->index, priv->index);
+	netdev_info(ndev, "%s on interface %d", __func__, priv->interface->index);
 
 	if (mqnic_link_status_poll)
 		del_timer_sync(&priv->link_status_timer);
@@ -318,8 +316,8 @@ static int mqnic_open(struct net_device *ndev)
 	ret = mqnic_start_port(ndev);
 
 	if (ret)
-		netdev_err(ndev, "Failed to start port on interface %d netdev %d: %d",
-				priv->interface->index, priv->index, ret);
+		netdev_err(ndev, "Failed to start port on interface %d: %d",
+				priv->interface->index, ret);
 
 	mutex_unlock(&mdev->state_lock);
 	return ret;
@@ -580,8 +578,7 @@ static void mqnic_link_status_timeout(struct timer_list *timer)
 	mod_timer(&priv->link_status_timer, jiffies + msecs_to_jiffies(mqnic_link_status_poll));
 }
 
-struct net_device *mqnic_create_netdev(struct mqnic_if *interface, int index,
-		struct mqnic_port *port)
+struct net_device *mqnic_create_netdev(struct mqnic_if *interface, struct mqnic_port *port)
 {
 	struct mqnic_dev *mdev = interface->mdev;
 	struct device *dev = interface->dev;
@@ -615,7 +612,6 @@ struct net_device *mqnic_create_netdev(struct mqnic_if *interface, int index,
 	priv->dl_port = &port->dl_port;
 	priv->interface = interface;
 	priv->dev = dev;
-	priv->index = index;
 	priv->port = port;
 	priv->port_up = false;
 	priv->sched_port = NULL;
@@ -703,8 +699,8 @@ struct net_device *mqnic_create_netdev(struct mqnic_if *interface, int index,
 
 	ret = register_netdev(ndev);
 	if (ret) {
-		dev_err(dev, "netdev registration failed on interface %d netdev %d: %d",
-				priv->interface->index, priv->index, ret);
+		dev_err(dev, "netdev registration failed on interface %d: %d",
+				priv->interface->index, ret);
 		goto fail;
 	}
 
