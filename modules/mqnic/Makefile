@@ -15,6 +15,7 @@ mqnic-y += mqnic_if.o
 mqnic-y += mqnic_port.o
 mqnic-y += mqnic_netdev.o
 mqnic-y += mqnic_sched_block.o
+mqnic-y += mqnic_sched_port.o
 mqnic-y += mqnic_scheduler.o
 mqnic-y += mqnic_ptp.o
 mqnic-y += mqnic_i2c.o

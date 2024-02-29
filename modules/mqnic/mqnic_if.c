@@ -29,6 +29,9 @@ struct mqnic_if *mqnic_create_interface(struct mqnic_dev *mdev, int index, u8 __
 	interface->hw_addr = hw_addr;
 	interface->csr_hw_addr = hw_addr + mdev->if_csr_offset;
 
+	INIT_LIST_HEAD(&interface->free_sched_port_list);
+	spin_lock_init(&interface->free_sched_port_list_lock);
+
 	// Enumerate registers
 	interface->rb_list = mqnic_enumerate_reg_block_list(interface->hw_addr, mdev->if_csr_offset, interface->hw_regs_size);
 	if (!interface->rb_list) {
@@ -267,10 +270,10 @@ struct mqnic_if *mqnic_create_interface(struct mqnic_dev *mdev, int index, u8 __
 	}
 
 	// create net_devices
-	interface->ndev_count = 1;
+	interface->ndev_count = interface->port_count;
 	for (k = 0; k < interface->ndev_count; k++) {
 		struct net_device *ndev = mqnic_create_netdev(interface, k,
-				interface->port[k], interface->sched_block[k]);
+				interface->port[k]);
 		if (IS_ERR_OR_NULL(ndev)) {
 			ret = PTR_ERR(ndev);
 			goto fail;
@@ -395,3 +398,44 @@ void mqnic_interface_set_rx_queue_map_indir_table(struct mqnic_if *interface, in
 	iowrite32(val, interface->rx_queue_map_indir_table[port] + index*4);
 }
 EXPORT_SYMBOL(mqnic_interface_set_rx_queue_map_indir_table);
+
+int mqnic_interface_register_sched_port(struct mqnic_if *interface, struct mqnic_sched_port *port)
+{
+	spin_lock(&interface->free_sched_port_list_lock);
+	list_add_tail(&port->free_list, &interface->free_sched_port_list);
+	spin_unlock(&interface->free_sched_port_list_lock);
+	return 0;
+}
+
+int mqnic_interface_unregister_sched_port(struct mqnic_if *interface, struct mqnic_sched_port *port)
+{
+	spin_lock(&interface->free_sched_port_list_lock);
+	list_del(&port->free_list);
+	spin_unlock(&interface->free_sched_port_list_lock);
+	return 0;
+}
+
+struct mqnic_sched_port *mqnic_interface_alloc_sched_port(struct mqnic_if *interface)
+{
+	struct mqnic_sched_port *port = NULL;
+
+	spin_lock(&interface->free_sched_port_list_lock);
+
+	port = list_first_entry_or_null(&interface->free_sched_port_list, struct mqnic_sched_port, free_list);
+
+	if (port)
+		list_del(&port->free_list);
+
+	spin_unlock(&interface->free_sched_port_list_lock);
+
+	return port;
+}
+
+void mqnic_interface_free_sched_port(struct mqnic_if *interface, struct mqnic_sched_port *port)
+{
+	if (!port)
+		return;
+	spin_lock(&interface->free_sched_port_list_lock);
+	list_add_tail(&port->free_list, &interface->free_sched_port_list);
+	spin_unlock(&interface->free_sched_port_list_lock);
+}

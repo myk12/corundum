@@ -95,6 +95,7 @@ struct mqnic_irq {
 	int irqn;
 	char name[16 + 3];
 	struct atomic_notifier_head nh;
+	struct list_head list;
 };
 
 #ifdef CONFIG_AUXILIARY_BUS
@@ -338,7 +339,16 @@ struct mqnic_sched {
 
 	int enable_count;
 
+	struct list_head sched_port_list;
+
 	u8 __iomem *hw_addr;
+};
+
+struct mqnic_sched_port {
+	struct mqnic_sched *sched;
+	int index;
+	struct list_head list;
+	struct list_head free_list;
 };
 
 struct mqnic_port {
@@ -405,6 +415,9 @@ struct mqnic_if {
 	u32 sched_block_count;
 	struct mqnic_sched_block *sched_block[MQNIC_MAX_PORTS];
 
+	spinlock_t free_sched_port_list_lock;
+	struct list_head free_sched_port_list;
+
 	u32 max_desc_block_size;
 
 	u32 rx_queue_map_indir_table_size;
@@ -450,7 +463,7 @@ struct mqnic_priv {
 	struct rw_semaphore rxq_table_sem;
 	struct radix_tree_root rxq_table;
 
-	struct mqnic_sched_block *sched_block;
+	struct mqnic_sched_port *sched_port;
 	struct mqnic_port *port;
 
 	u32 max_desc_block_size;
@@ -503,6 +516,10 @@ u32 mqnic_interface_get_rx_queue_map_app_mask(struct mqnic_if *interface, int po
 void mqnic_interface_set_rx_queue_map_app_mask(struct mqnic_if *interface, int port, u32 val);
 u32 mqnic_interface_get_rx_queue_map_indir_table(struct mqnic_if *interface, int port, int index);
 void mqnic_interface_set_rx_queue_map_indir_table(struct mqnic_if *interface, int port, int index, u32 val);
+int mqnic_interface_register_sched_port(struct mqnic_if *interface, struct mqnic_sched_port *port);
+int mqnic_interface_unregister_sched_port(struct mqnic_if *interface, struct mqnic_sched_port *port);
+struct mqnic_sched_port *mqnic_interface_alloc_sched_port(struct mqnic_if *interface);
+void mqnic_interface_free_sched_port(struct mqnic_if *interface, struct mqnic_sched_port *port);
 
 // mqnic_port.c
 struct mqnic_port *mqnic_create_port(struct mqnic_if *interface, int index,
@@ -525,7 +542,7 @@ void mqnic_stop_port(struct net_device *ndev);
 int mqnic_update_indir_table(struct net_device *ndev);
 void mqnic_update_stats(struct net_device *ndev);
 struct net_device *mqnic_create_netdev(struct mqnic_if *interface, int index,
-		struct mqnic_port *port, struct mqnic_sched_block *sched_block);
+		struct mqnic_port *port);
 void mqnic_destroy_netdev(struct net_device *ndev);
 
 // mqnic_sched_block.c
@@ -541,22 +558,52 @@ struct mqnic_sched *mqnic_create_scheduler(struct mqnic_sched_block *block,
 void mqnic_destroy_scheduler(struct mqnic_sched *sched);
 int mqnic_scheduler_enable(struct mqnic_sched *sched);
 void mqnic_scheduler_disable(struct mqnic_sched *sched);
-int mqnic_scheduler_channel_enable(struct mqnic_sched *sched, int ch);
-void mqnic_scheduler_channel_disable(struct mqnic_sched *sched, int ch);
-void mqnic_scheduler_channel_set_dest(struct mqnic_sched *sched, int ch, int val);
-int mqnic_scheduler_channel_get_dest(struct mqnic_sched *sched, int ch);
-void mqnic_scheduler_channel_set_pkt_budget(struct mqnic_sched *sched, int ch, int val);
-int mqnic_scheduler_channel_get_pkt_budget(struct mqnic_sched *sched, int ch);
-void mqnic_scheduler_channel_set_data_budget(struct mqnic_sched *sched, int ch, int val);
-int mqnic_scheduler_channel_get_data_budget(struct mqnic_sched *sched, int ch);
-void mqnic_scheduler_channel_set_pkt_limit(struct mqnic_sched *sched, int ch, int val);
-int mqnic_scheduler_channel_get_pkt_limit(struct mqnic_sched *sched, int ch);
-void mqnic_scheduler_channel_set_data_limit(struct mqnic_sched *sched, int ch, int val);
-int mqnic_scheduler_channel_get_data_limit(struct mqnic_sched *sched, int ch);
+int mqnic_scheduler_channel_enable(struct mqnic_sched *sched, int port, int tc);
+void mqnic_scheduler_channel_disable(struct mqnic_sched *sched, int port, int tc);
+void mqnic_scheduler_channel_set_dest(struct mqnic_sched *sched, int port, int tc, int val);
+int mqnic_scheduler_channel_get_dest(struct mqnic_sched *sched, int port, int tc);
+void mqnic_scheduler_channel_set_pkt_budget(struct mqnic_sched *sched, int port, int tc, int val);
+int mqnic_scheduler_channel_get_pkt_budget(struct mqnic_sched *sched, int port, int tc);
+void mqnic_scheduler_channel_set_data_budget(struct mqnic_sched *sched, int port, int tc, int val);
+int mqnic_scheduler_channel_get_data_budget(struct mqnic_sched *sched, int port, int tc);
+void mqnic_scheduler_channel_set_pkt_limit(struct mqnic_sched *sched, int port, int tc, int val);
+int mqnic_scheduler_channel_get_pkt_limit(struct mqnic_sched *sched, int port, int tc);
+void mqnic_scheduler_channel_set_data_limit(struct mqnic_sched *sched, int port, int tc, int val);
+int mqnic_scheduler_channel_get_data_limit(struct mqnic_sched *sched, int port, int tc);
 int mqnic_scheduler_queue_enable(struct mqnic_sched *sched, int queue);
 void mqnic_scheduler_queue_disable(struct mqnic_sched *sched, int queue);
 void mqnic_scheduler_queue_set_pause(struct mqnic_sched *sched, int queue, int val);
 int mqnic_scheduler_queue_get_pause(struct mqnic_sched *sched, int queue);
+int mqnic_scheduler_queue_port_enable(struct mqnic_sched *sched, int queue, int port);
+void mqnic_scheduler_queue_port_disable(struct mqnic_sched *sched, int queue, int port);
+void mqnic_scheduler_queue_port_set_pause(struct mqnic_sched *sched, int queue, int port, int val);
+int mqnic_scheduler_queue_port_get_pause(struct mqnic_sched *sched, int queue, int port);
+void mqnic_scheduler_queue_port_set_tc(struct mqnic_sched *sched, int queue, int port, int val);
+int mqnic_scheduler_queue_port_get_tc(struct mqnic_sched *sched, int queue, int port);
+
+// mqnic_sched_port.c
+struct mqnic_sched_port *mqnic_create_sched_port(struct mqnic_sched *sched, int index);
+void mqnic_destroy_sched_port(struct mqnic_sched_port *port);
+int mqnic_sched_port_enable(struct mqnic_sched_port *port);
+void mqnic_sched_port_disable(struct mqnic_sched_port *port);
+int mqnic_sched_port_channel_enable(struct mqnic_sched_port *port, int tc);
+void mqnic_sched_port_channel_disable(struct mqnic_sched_port *port, int tc);
+void mqnic_sched_port_channel_set_dest(struct mqnic_sched_port *port, int tc, int val);
+int mqnic_sched_port_channel_get_dest(struct mqnic_sched_port *port, int tc);
+void mqnic_sched_port_channel_set_pkt_budget(struct mqnic_sched_port *port, int tc, int val);
+int mqnic_sched_port_channel_get_pkt_budget(struct mqnic_sched_port *port, int tc);
+void mqnic_sched_port_channel_set_data_budget(struct mqnic_sched_port *port, int tc, int val);
+int mqnic_sched_port_channel_get_data_budget(struct mqnic_sched_port *port, int tc);
+void mqnic_sched_port_channel_set_pkt_limit(struct mqnic_sched_port *port, int tc, int val);
+int mqnic_sched_port_channel_get_pkt_limit(struct mqnic_sched_port *port, int tc);
+void mqnic_sched_port_channel_set_data_limit(struct mqnic_sched_port *port, int tc, int val);
+int mqnic_sched_port_channel_get_data_limit(struct mqnic_sched_port *port, int tc);
+int mqnic_sched_port_queue_enable(struct mqnic_sched_port *port, int queue);
+void mqnic_sched_port_queue_disable(struct mqnic_sched_port *port, int queue);
+void mqnic_sched_port_queue_set_pause(struct mqnic_sched_port *port, int queue, int val);
+int mqnic_sched_port_queue_get_pause(struct mqnic_sched_port *port, int queue);
+void mqnic_sched_port_queue_set_tc(struct mqnic_sched_port *port, int queue, int val);
+int mqnic_sched_port_queue_get_tc(struct mqnic_sched_port *port, int queue);
 
 // mqnic_ptp.c
 void mqnic_register_phc(struct mqnic_dev *mdev);

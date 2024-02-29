@@ -27,6 +27,9 @@ int mqnic_start_port(struct net_device *ndev)
 
 	desc_block_size = min_t(u32, priv->interface->max_desc_block_size, 4);
 
+	// allocate scheduler port
+	priv->sched_port = mqnic_interface_alloc_sched_port(iface);
+
 	// set up RX queues
 	for (k = 0; k < priv->rxq_count; k++) {
 		// create CQ
@@ -166,20 +169,22 @@ int mqnic_start_port(struct net_device *ndev)
 	radix_tree_for_each_slot(slot, &priv->txq_table, &iter, 0) {
 		struct mqnic_ring *q = (struct mqnic_ring *)*slot;
 
-		mqnic_scheduler_queue_enable(priv->sched_block->sched[0], q->index);
+		mqnic_sched_port_queue_set_tc(priv->sched_port, q->index, 0);
+		mqnic_sched_port_queue_enable(priv->sched_port, q->index);
 	}
 	up_read(&priv->txq_table_sem);
 
 	// configure scheduler flow control
-	mqnic_scheduler_channel_set_pkt_budget(priv->sched_block->sched[0], 0, 1);
-	mqnic_scheduler_channel_set_data_budget(priv->sched_block->sched[0], 0, ndev->mtu + ETH_HLEN);
-	mqnic_scheduler_channel_set_pkt_limit(priv->sched_block->sched[0], 0, 0xFFFF);
-	mqnic_scheduler_channel_set_data_limit(priv->sched_block->sched[0], 0, iface->tx_fifo_depth);
+	mqnic_sched_port_channel_set_dest(priv->sched_port, 0, (priv->port->index << 4) | 0);
+	mqnic_sched_port_channel_set_pkt_budget(priv->sched_port, 0, 1);
+	mqnic_sched_port_channel_set_data_budget(priv->sched_port, 0, ndev->mtu + ETH_HLEN);
+	mqnic_sched_port_channel_set_pkt_limit(priv->sched_port, 0, 0xFFFF);
+	mqnic_sched_port_channel_set_data_limit(priv->sched_port, 0, iface->tx_fifo_depth);
 
-	mqnic_scheduler_channel_enable(priv->sched_block->sched[0], 0);
+	mqnic_sched_port_channel_enable(priv->sched_port, 0);
 
 	// enable scheduler
-	mqnic_activate_sched_block(priv->sched_block);
+	mqnic_sched_port_enable(priv->sched_port);
 
 	netif_tx_start_all_queues(ndev);
 	netif_device_attach(ndev);
@@ -229,20 +234,18 @@ void mqnic_stop_port(struct net_device *ndev)
 	mqnic_update_stats(ndev);
 	spin_unlock_bh(&priv->stats_lock);
 
-	// configure scheduler
-	down_read(&priv->txq_table_sem);
-	radix_tree_for_each_slot(slot, &priv->txq_table, &iter, 0) {
-		struct mqnic_ring *q = (struct mqnic_ring *)*slot;
+	if (priv->sched_port) {
+		down_read(&priv->txq_table_sem);
+		radix_tree_for_each_slot(slot, &priv->txq_table, &iter, 0) {
+			struct mqnic_ring *q = (struct mqnic_ring *)*slot;
 
-		mqnic_scheduler_queue_disable(priv->sched_block->sched[0], q->index);
+			mqnic_sched_port_queue_disable(priv->sched_port, q->index);
+		}
+		up_read(&priv->txq_table_sem);
+
+		mqnic_sched_port_channel_disable(priv->sched_port, 0);
+		mqnic_sched_port_disable(priv->sched_port);
 	}
-	up_read(&priv->txq_table_sem);
-
-	// configure scheduler flow control
-	mqnic_scheduler_channel_disable(priv->sched_block->sched[0], 0);
-
-	// disable scheduler
-	mqnic_deactivate_sched_block(priv->sched_block);
 
 	// disable TX and RX queues
 	down_read(&priv->txq_table_sem);
@@ -297,6 +300,11 @@ void mqnic_stop_port(struct net_device *ndev)
 		mqnic_destroy_cq(cq);
 	}
 	up_write(&priv->rxq_table_sem);
+
+	// free scheduler port
+	if (priv->sched_port)
+		mqnic_interface_free_sched_port(priv->interface, priv->sched_port);
+	priv->sched_port = NULL;
 }
 
 static int mqnic_open(struct net_device *ndev)
@@ -338,8 +346,8 @@ int mqnic_update_indir_table(struct net_device *ndev)
 	struct mqnic_ring *q;
 	int k;
 
-	mqnic_interface_set_rx_queue_map_rss_mask(iface, 0, 0xffffffff);
-	mqnic_interface_set_rx_queue_map_app_mask(iface, 0, 0);
+	mqnic_interface_set_rx_queue_map_rss_mask(iface, priv->port->index, 0xffffffff);
+	mqnic_interface_set_rx_queue_map_app_mask(iface, priv->port->index, 0);
 
 	for (k = 0; k < priv->rx_queue_map_indir_table_size; k++) {
 		rcu_read_lock();
@@ -347,7 +355,7 @@ int mqnic_update_indir_table(struct net_device *ndev)
 		rcu_read_unlock();
 
 		if (q)
-			mqnic_interface_set_rx_queue_map_indir_table(iface, 0, k, q->index);
+			mqnic_interface_set_rx_queue_map_indir_table(iface, priv->port->index, k, q->index);
 	}
 
 	return 0;
@@ -573,7 +581,7 @@ static void mqnic_link_status_timeout(struct timer_list *timer)
 }
 
 struct net_device *mqnic_create_netdev(struct mqnic_if *interface, int index,
-		struct mqnic_port *port, struct mqnic_sched_block *sched_block)
+		struct mqnic_port *port)
 {
 	struct mqnic_dev *mdev = interface->mdev;
 	struct device *dev = interface->dev;
@@ -610,13 +618,13 @@ struct net_device *mqnic_create_netdev(struct mqnic_if *interface, int index,
 	priv->index = index;
 	priv->port = port;
 	priv->port_up = false;
-	priv->sched_block = sched_block;
+	priv->sched_port = NULL;
 
 	// associate interface resources
 	priv->if_features = interface->if_features;
 
-	priv->txq_count = min_t(u32, mqnic_res_get_count(interface->txq_res), 256);
-	priv->rxq_count = min_t(u32, mqnic_res_get_count(interface->rxq_res), num_online_cpus());
+	priv->txq_count = min_t(u32, mqnic_res_get_count(interface->txq_res) / interface->port_count, 256);
+	priv->rxq_count = min_t(u32, mqnic_res_get_count(interface->rxq_res) / interface->port_count, num_online_cpus());
 
 	priv->tx_ring_size = roundup_pow_of_two(clamp_t(u32, mqnic_num_txq_entries,
 			MQNIC_MIN_TX_RING_SZ, MQNIC_MAX_TX_RING_SZ));
