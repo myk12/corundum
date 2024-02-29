@@ -32,6 +32,8 @@ struct mqnic_if *mqnic_create_interface(struct mqnic_dev *mdev, int index, u8 __
 	INIT_LIST_HEAD(&interface->free_sched_port_list);
 	spin_lock_init(&interface->free_sched_port_list_lock);
 
+	INIT_LIST_HEAD(&interface->ndev_list);
+
 	// Enumerate registers
 	interface->rb_list = mqnic_enumerate_reg_block_list(interface->hw_addr, mdev->if_csr_offset, interface->hw_regs_size);
 	if (!interface->rb_list) {
@@ -272,13 +274,15 @@ struct mqnic_if *mqnic_create_interface(struct mqnic_dev *mdev, int index, u8 __
 	// create net_devices
 	interface->ndev_count = interface->port_count;
 	for (k = 0; k < interface->ndev_count; k++) {
-		struct net_device *ndev = mqnic_create_netdev(interface,
-				interface->port[k]);
+		struct net_device *ndev;
+		struct mqnic_priv *priv;
+		ndev = mqnic_create_netdev(interface, interface->port[k]);
 		if (IS_ERR_OR_NULL(ndev)) {
 			ret = PTR_ERR(ndev);
 			goto fail;
 		}
-		interface->ndev[k] = ndev;
+		priv = netdev_priv(ndev);
+		list_add_tail(&priv->ndev_list, &interface->ndev_list);
 	}
 
 	return interface;
@@ -290,14 +294,13 @@ fail:
 
 void mqnic_destroy_interface(struct mqnic_if *interface)
 {
+	struct mqnic_priv *priv, *priv_safe;
 	int k;
 
 	// destroy associated net_devices
-	for (k = 0; k < ARRAY_SIZE(interface->ndev); k++) {
-		if (interface->ndev[k]) {
-			mqnic_destroy_netdev(interface->ndev[k]);
-			interface->ndev[k] = NULL;
-		}
+	list_for_each_entry_safe(priv, priv_safe, &interface->ndev_list, ndev_list) {
+		list_del(&priv->ndev_list);
+		mqnic_destroy_netdev(priv->ndev);
 	}
 
 	// free EQs

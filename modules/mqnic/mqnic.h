@@ -428,7 +428,7 @@ struct mqnic_if {
 	u8 __iomem *csr_hw_addr;
 
 	u32 ndev_count;
-	struct net_device *ndev[MQNIC_MAX_PORTS];
+	struct list_head ndev_list;
 
 	struct i2c_client *mod_i2c_client;
 };
@@ -471,6 +471,8 @@ struct mqnic_priv {
 	u32 *rx_queue_map_indir_table;
 
 	struct hwtstamp_config hwts_config;
+
+	struct list_head ndev_list;
 
 	struct i2c_client *mod_i2c_client;
 };

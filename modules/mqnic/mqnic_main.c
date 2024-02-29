@@ -243,7 +243,7 @@ static int mqnic_common_probe(struct mqnic_dev *mqnic)
 	struct mqnic_reg_block *rb;
 	struct rtc_time tm;
 
-	int k = 0, l = 0;
+	int k = 0;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 	devlink_register(devlink);
@@ -390,13 +390,12 @@ static int mqnic_common_probe(struct mqnic_dev *mqnic)
 
 	// pass module I2C clients to interface instances
 	for (k = 0; k < mqnic->if_count; k++) {
+		struct mqnic_priv *priv;
 		struct mqnic_if *interface = mqnic->interface[k];
 		interface->mod_i2c_client = mqnic->mod_i2c_client[k];
 
-		for (l = 0; l < interface->ndev_count; l++) {
-			struct mqnic_priv *priv = netdev_priv(interface->ndev[l]);
+		list_for_each_entry(priv, &interface->ndev_list, ndev_list)
 			priv->mod_i2c_client = mqnic->mod_i2c_client[k];
-		}
 	}
 
 fail_create_if:
