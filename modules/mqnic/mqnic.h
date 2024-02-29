@@ -407,7 +407,8 @@ struct mqnic_if {
 	struct mqnic_res *rxq_res;
 
 	u32 eq_count;
-	struct mqnic_eq *eq[MQNIC_MAX_EQ];
+	struct rw_semaphore eq_table_sem;
+	struct radix_tree_root eq_table;
 
 	u32 port_count;
 	struct mqnic_port *port[MQNIC_MAX_PORTS];

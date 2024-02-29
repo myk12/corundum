@@ -13,6 +13,7 @@ int mqnic_start_port(struct net_device *ndev)
 	struct mqnic_if *iface = priv->interface;
 	struct mqnic_ring *q;
 	struct mqnic_cq *cq;
+	struct mqnic_eq *eq;
 	struct radix_tree_iter iter;
 	void **slot;
 	int k;
@@ -38,7 +39,11 @@ int mqnic_start_port(struct net_device *ndev)
 			goto fail;
 		}
 
-		ret = mqnic_open_cq(cq, iface->eq[k % iface->eq_count], priv->rx_ring_size);
+		rcu_read_lock();
+		eq = radix_tree_lookup(&iface->eq_table, k % iface->eq_count);
+		rcu_read_unlock();
+
+		ret = mqnic_open_cq(cq, eq, priv->rx_ring_size);
 		if (ret) {
 			mqnic_destroy_cq(cq);
 			goto fail;
@@ -93,7 +98,11 @@ int mqnic_start_port(struct net_device *ndev)
 			goto fail;
 		}
 
-		ret = mqnic_open_cq(cq, iface->eq[k % iface->eq_count], priv->tx_ring_size);
+		rcu_read_lock();
+		eq = radix_tree_lookup(&iface->eq_table, k % iface->eq_count);
+		rcu_read_unlock();
+
+		ret = mqnic_open_cq(cq, eq, priv->tx_ring_size);
 		if (ret) {
 			mqnic_destroy_cq(cq);
 			goto fail;

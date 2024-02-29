@@ -29,6 +29,9 @@ struct mqnic_if *mqnic_create_interface(struct mqnic_dev *mdev, int index, u8 __
 	interface->hw_addr = hw_addr;
 	interface->csr_hw_addr = hw_addr + mdev->if_csr_offset;
 
+	init_rwsem(&interface->eq_table_sem);
+	INIT_RADIX_TREE(&interface->eq_table, GFP_KERNEL);
+
 	INIT_LIST_HEAD(&interface->free_sched_port_list);
 	spin_lock_init(&interface->free_sched_port_list_lock);
 
@@ -262,7 +265,13 @@ struct mqnic_if *mqnic_create_interface(struct mqnic_dev *mdev, int index, u8 __
 			goto fail;
 		}
 
-		interface->eq[k] = eq;
+		down_write(&interface->eq_table_sem);
+		ret = radix_tree_insert(&interface->eq_table, k, eq);
+		up_write(&interface->eq_table_sem);
+		if (ret) {
+			mqnic_destroy_eq(eq);
+			goto fail;
+		}
 
 		ret = mqnic_open_eq(eq, mdev->irq[k % mdev->irq_count], mqnic_num_eq_entries);
 		if (ret)
@@ -295,6 +304,8 @@ fail:
 void mqnic_destroy_interface(struct mqnic_if *interface)
 {
 	struct mqnic_priv *priv, *priv_safe;
+	struct radix_tree_iter iter;
+	void **slot;
 	int k;
 
 	// destroy associated net_devices
@@ -304,12 +315,12 @@ void mqnic_destroy_interface(struct mqnic_if *interface)
 	}
 
 	// free EQs
-	for (k = 0; k < ARRAY_SIZE(interface->eq); k++) {
-		if (interface->eq[k]) {
-			mqnic_destroy_eq(interface->eq[k]);
-			interface->eq[k] = NULL;
-		}
+	down_write(&interface->eq_table_sem);
+	radix_tree_for_each_slot(slot, &interface->eq_table, &iter, 0) {
+		struct mqnic_eq *eq = (struct mqnic_eq *)*slot;
+		mqnic_destroy_eq(eq);
 	}
+	up_write(&interface->eq_table_sem);
 
 	// free schedulers
 	for (k = 0; k < ARRAY_SIZE(interface->sched_block); k++) {
