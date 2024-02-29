@@ -1427,8 +1427,8 @@ class NetDev:
         self.port = port
         self.sched_port = None
 
-        self.txq_count = min(interface.txq_res.get_count(), 4)
-        self.rxq_count = min(interface.rxq_res.get_count(), 4)
+        self.txq_count = min(interface.txq_res.get_count() // interface.port_count, 4)
+        self.rxq_count = min(interface.rxq_res.get_count() // interface.port_count, 4)
 
         self.rx_queue_map_indir_table_size = interface.rx_queue_map_indir_table_size
         self.rx_queue_map_indir_table = [k % self.rxq_count for k in range(self.rx_queue_map_indir_table_size)]
