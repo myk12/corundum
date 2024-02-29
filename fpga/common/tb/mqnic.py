@@ -1426,7 +1426,7 @@ class NetDev:
         self.port_up = False
 
         self.port = port
-        self.sched_port = interface.alloc_sched_port()
+        self.sched_port = None
 
         self.txq_count = min(interface.txq_res.get_count(), 4)
         self.rxq_count = min(interface.rxq_res.get_count(), 4)
@@ -1449,6 +1449,8 @@ class NetDev:
     async def open(self):
         if self.port_up:
             return
+
+        self.sched_port = self.interface.alloc_sched_port()
 
         for k in range(self.rxq_count):
             cq = self.interface.create_cq()
@@ -1549,6 +1551,9 @@ class NetDev:
         self.rxq = []
 
         await self.ports[0].set_tx_ctrl(0)
+
+        self.interface.free_sched_port(self.sched_port)
+        self.sched_port = None
 
     async def start_xmit(self, skb, tx_ring=None, csum_start=None, csum_offset=None):
         if not self.port_up:
