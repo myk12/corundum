@@ -24,7 +24,7 @@ TxReqBus, TxReqTransaction, TxReqSource, TxReqSink, TxReqMonitor = define_stream
 
 
 TxStatusBus, TxStatusTransaction, TxStatusSource, TxStatusSink, TxStatusMonitor = define_stream("TxStatus",
-    signals=["tag", "valid"],
+    signals=["queue", "tag", "valid"],
     optional_signals=["empty", "error", "len", "ready"]
 )
 
@@ -193,7 +193,7 @@ async def run_test_single(dut, idle_inserter=None, backpressure_inserter=None):
 
         assert tx_req.queue == 0
 
-        status = TxStatusTransaction(empty=0, error=0, len=1000, tag=tx_req.tag)
+        status = TxStatusTransaction(empty=0, error=0, len=1000, queue=tx_req.queue, tag=tx_req.tag)
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
         await tb.tx_status_start_source.send(status)
@@ -204,7 +204,7 @@ async def run_test_single(dut, idle_inserter=None, backpressure_inserter=None):
 
     assert tx_req.queue == 0
 
-    status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+    status = TxStatusTransaction(empty=1, error=0, len=0, queue=tx_req.queue, tag=tx_req.tag)
     tb.log.info("TX status: %s", status)
     await tb.tx_status_dequeue_source.send(status)
 
@@ -217,7 +217,7 @@ async def run_test_single(dut, idle_inserter=None, backpressure_inserter=None):
 
         assert tx_req.queue == 0
 
-        status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+        status = TxStatusTransaction(empty=1, error=0, len=0, queue=tx_req.queue, tag=tx_req.tag)
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
 
@@ -260,7 +260,7 @@ async def run_test_multiple(dut, idle_inserter=None, backpressure_inserter=None)
 
         assert tx_req.queue == k % 10
 
-        status = TxStatusTransaction(empty=0, error=0, len=1000, tag=tx_req.tag)
+        status = TxStatusTransaction(empty=0, error=0, len=1000, queue=tx_req.queue, tag=tx_req.tag)
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
         await tb.tx_status_start_source.send(status)
@@ -270,7 +270,7 @@ async def run_test_multiple(dut, idle_inserter=None, backpressure_inserter=None)
         tx_req = await tb.tx_req_sink.recv()
         tb.log.info("TX request: %s", tx_req)
 
-        status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+        status = TxStatusTransaction(empty=1, error=0, len=0, queue=tx_req.queue, tag=tx_req.tag)
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
 
@@ -281,7 +281,7 @@ async def run_test_multiple(dut, idle_inserter=None, backpressure_inserter=None)
         tx_req = await tb.tx_req_sink.recv()
         tb.log.info("TX request: %s", tx_req)
 
-        status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+        status = TxStatusTransaction(empty=1, error=0, len=0, queue=tx_req.queue, tag=tx_req.tag)
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
 
@@ -319,7 +319,7 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
         assert tx_req.queue == 0
 
-        status = TxStatusTransaction(empty=0, error=0, len=1000, tag=tx_req.tag)
+        status = TxStatusTransaction(empty=0, error=0, len=1000, queue=tx_req.queue, tag=tx_req.tag)
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
         await tb.tx_status_start_source.send(status)
@@ -333,7 +333,7 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
     assert tx_req.queue == 0
 
-    status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+    status = TxStatusTransaction(empty=1, error=0, len=0, queue=tx_req.queue, tag=tx_req.tag)
     tb.log.info("TX status: %s", status)
     await tb.tx_status_dequeue_source.send(status)
 
@@ -344,7 +344,7 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
     assert tx_req.queue == 0
 
-    status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+    status = TxStatusTransaction(empty=1, error=0, len=0, queue=tx_req.queue, tag=tx_req.tag)
     tb.log.info("TX status: %s", status)
     await tb.tx_status_dequeue_source.send(status)
 
@@ -353,7 +353,7 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
     assert tx_req.queue == 0
 
-    status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+    status = TxStatusTransaction(empty=1, error=0, len=0, queue=tx_req.queue, tag=tx_req.tag)
     tb.log.info("TX status: %s", status)
     await tb.tx_status_dequeue_source.send(status)
 
@@ -363,7 +363,7 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
         assert tx_req.queue == 0
 
-        status = TxStatusTransaction(empty=0, error=0, len=1000, tag=tx_req.tag)
+        status = TxStatusTransaction(empty=0, error=0, len=1000, queue=tx_req.queue, tag=tx_req.tag)
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
         await tb.tx_status_start_source.send(status)
@@ -377,7 +377,7 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
     assert tx_req.queue == 0
 
-    status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+    status = TxStatusTransaction(empty=1, error=0, len=0, queue=tx_req.queue, tag=tx_req.tag)
     tb.log.info("TX status: %s", status)
     await tb.tx_status_dequeue_source.send(status)
 
@@ -390,7 +390,7 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
 
         assert tx_req.queue == 0
 
-        status = TxStatusTransaction(empty=1, error=0, len=0, tag=tx_req.tag)
+        status = TxStatusTransaction(empty=1, error=0, len=0, queue=tx_req.queue, tag=tx_req.tag)
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
 

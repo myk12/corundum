@@ -114,15 +114,18 @@ module mqnic_tx_scheduler_block #
      */
     input  wire                          s_axis_tx_status_dequeue_empty,
     input  wire                          s_axis_tx_status_dequeue_error,
+    input  wire [QUEUE_INDEX_WIDTH-1:0]  s_axis_tx_status_dequeue_queue,
     input  wire [TX_REQ_TAG_WIDTH-1:0]   s_axis_tx_status_dequeue_tag,
     input  wire                          s_axis_tx_status_dequeue_valid,
 
     input  wire                          s_axis_tx_status_start_error,
     input  wire [DMA_LEN_WIDTH-1:0]      s_axis_tx_status_start_len,
+    input  wire [QUEUE_INDEX_WIDTH-1:0]  s_axis_tx_status_start_queue,
     input  wire [TX_REQ_TAG_WIDTH-1:0]   s_axis_tx_status_start_tag,
     input  wire                          s_axis_tx_status_start_valid,
 
     input  wire [DMA_LEN_WIDTH-1:0]      s_axis_tx_status_finish_len,
+    input  wire [QUEUE_INDEX_WIDTH-1:0]  s_axis_tx_status_finish_queue,
     input  wire [TX_REQ_TAG_WIDTH-1:0]   s_axis_tx_status_finish_tag,
     input  wire                          s_axis_tx_status_finish_valid,
 
@@ -450,15 +453,18 @@ tx_scheduler_inst (
      */
     .s_axis_tx_status_dequeue_empty(s_axis_tx_status_dequeue_empty),
     .s_axis_tx_status_dequeue_error(s_axis_tx_status_dequeue_error),
+    .s_axis_tx_status_dequeue_queue(s_axis_tx_status_dequeue_queue),
     .s_axis_tx_status_dequeue_tag(s_axis_tx_status_dequeue_tag),
     .s_axis_tx_status_dequeue_valid(s_axis_tx_status_dequeue_valid),
 
     .s_axis_tx_status_start_error(s_axis_tx_status_start_error),
     .s_axis_tx_status_start_len(s_axis_tx_status_start_len),
+    .s_axis_tx_status_start_queue(s_axis_tx_status_start_queue),
     .s_axis_tx_status_start_tag(s_axis_tx_status_start_tag),
     .s_axis_tx_status_start_valid(s_axis_tx_status_start_valid),
 
     .s_axis_tx_status_finish_len(s_axis_tx_status_finish_len),
+    .s_axis_tx_status_finish_queue(s_axis_tx_status_finish_queue),
     .s_axis_tx_status_finish_tag(s_axis_tx_status_finish_tag),
     .s_axis_tx_status_finish_valid(s_axis_tx_status_finish_valid),
 

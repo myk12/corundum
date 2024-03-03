@@ -73,15 +73,18 @@ module tx_scheduler_rr #
      */
     input  wire                          s_axis_tx_status_dequeue_empty,
     input  wire                          s_axis_tx_status_dequeue_error,
+    input  wire [QUEUE_INDEX_WIDTH-1:0]  s_axis_tx_status_dequeue_queue,
     input  wire [REQ_TAG_WIDTH-1:0]      s_axis_tx_status_dequeue_tag,
     input  wire                          s_axis_tx_status_dequeue_valid,
 
     input  wire                          s_axis_tx_status_start_error,
     input  wire [LEN_WIDTH-1:0]          s_axis_tx_status_start_len,
+    input  wire [QUEUE_INDEX_WIDTH-1:0]  s_axis_tx_status_start_queue,
     input  wire [REQ_TAG_WIDTH-1:0]      s_axis_tx_status_start_tag,
     input  wire                          s_axis_tx_status_start_valid,
 
     input  wire [LEN_WIDTH-1:0]          s_axis_tx_status_finish_len,
+    input  wire [QUEUE_INDEX_WIDTH-1:0]  s_axis_tx_status_finish_queue,
     input  wire [REQ_TAG_WIDTH-1:0]      s_axis_tx_status_finish_tag,
     input  wire                          s_axis_tx_status_finish_valid,
 
