@@ -20,7 +20,6 @@ VERILOG_SOURCES += ../../lib/axis/rtl/priority_encoder.v
 export PARAM_LEN_WIDTH := 16
 export PARAM_REQ_DEST_WIDTH := 8
 export PARAM_REQ_TAG_WIDTH := 8
-export PARAM_OP_TABLE_SIZE := 16
 export PARAM_QUEUE_INDEX_WIDTH := 6
 export PARAM_PIPELINE := 2
 export PARAM_SCHED_CTRL_ENABLE := 1

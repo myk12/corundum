@@ -18,7 +18,6 @@ module tx_scheduler_rr #
     parameter LEN_WIDTH = 16,
     parameter REQ_DEST_WIDTH = 8,
     parameter REQ_TAG_WIDTH = 8,
-    parameter OP_TABLE_SIZE = 16,
     parameter QUEUE_INDEX_WIDTH = 6,
     parameter PIPELINE = 2,
     parameter SCHED_CTRL_ENABLE = 0,
@@ -140,7 +139,9 @@ localparam TX_FC_W = 4;
 
 localparam QUEUE_COUNT = 2**QUEUE_INDEX_WIDTH;
 
-localparam CL_OP_TABLE_SIZE = $clog2(OP_TABLE_SIZE);
+localparam GEN_ID_W = REQ_TAG_WIDTH < 8 ? REQ_TAG_WIDTH : 8;
+localparam CL_OP_COUNT = PKT_FC_W;
+localparam FINISH_FIFO_AW = CL_OP_COUNT;
 
 localparam RAM_BE_W = 2;
 localparam RAM_WIDTH = RAM_BE_W*8;
@@ -149,11 +150,6 @@ localparam RBB = RB_BASE_ADDR & {REG_ADDR_WIDTH{1'b1}};
 
 // check configuration
 initial begin
-    if (REQ_TAG_WIDTH < CL_OP_TABLE_SIZE) begin
-        $error("Error: REQ_TAG_WIDTH insufficient for OP_TABLE_SIZE (instance %m)");
-        $finish;
-    end
-
     if (AXIL_DATA_WIDTH != 32) begin
         $error("Error: AXI lite interface width must be 32 (instance %m)");
         $finish;
@@ -207,7 +203,6 @@ reg [QUEUE_INDEX_WIDTH-1:0] queue_ram_addr_pipeline_reg[PIPELINE-1:0], queue_ram
 reg [AXIL_DATA_WIDTH-1:0] write_data_pipeline_reg[PIPELINE-1:0], write_data_pipeline_next[PIPELINE-1:0];
 reg [AXIL_STRB_WIDTH-1:0] write_strobe_pipeline_reg[PIPELINE-1:0], write_strobe_pipeline_next[PIPELINE-1:0];
 reg [REQ_TAG_WIDTH-1:0] req_tag_pipeline_reg[PIPELINE-1:0], req_tag_pipeline_next[PIPELINE-1:0];
-reg [CL_OP_TABLE_SIZE-1:0] op_index_pipeline_reg[PIPELINE-1:0], op_index_pipeline_next[PIPELINE-1:0];
 
 reg [QUEUE_INDEX_WIDTH-1:0] m_axis_tx_req_queue_reg = {QUEUE_INDEX_WIDTH{1'b0}}, m_axis_tx_req_queue_next;
 reg [REQ_DEST_WIDTH-1:0] m_axis_tx_req_dest_reg = REQ_DEST_DEFAULT;
@@ -244,13 +239,13 @@ reg [RAM_WIDTH-1:0] queue_ram_rd_data;
 // 1              1    pause
 // 6              1    active
 // 7              1    scheduled
-// 15:8           8   tail index
+// 15:8           8    generation ID
 
 wire queue_ram_rd_data_enabled = queue_ram_rd_data[0];
 wire queue_ram_rd_data_paused = queue_ram_rd_data[1];
 wire queue_ram_rd_data_active = queue_ram_rd_data[6];
 wire queue_ram_rd_data_scheduled = queue_ram_rd_data[7];
-wire [CL_OP_TABLE_SIZE-1:0] queue_ram_rd_data_op_tail_index = queue_ram_rd_data[15:8];
+wire [GEN_ID_W-1:0] queue_ram_rd_data_gen_id = queue_ram_rd_data[15:8];
 
 integer l;
 
@@ -266,51 +261,32 @@ always @* begin
     end
 end
 
-reg [OP_TABLE_SIZE-1:0] op_table_active = 0;
+reg [FINISH_FIFO_AW+1-1:0] finish_fifo_wr_ptr_reg = 0, finish_fifo_wr_ptr_next;
+reg [FINISH_FIFO_AW+1-1:0] finish_fifo_rd_ptr_reg = 0, finish_fifo_rd_ptr_next;
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
-reg [QUEUE_INDEX_WIDTH-1:0] op_table_queue[OP_TABLE_SIZE-1:0];
+reg [QUEUE_INDEX_WIDTH-1:0] finish_fifo_queue[(2**FINISH_FIFO_AW)-1:0];
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
-reg op_table_doorbell[OP_TABLE_SIZE-1:0];
+reg [REQ_TAG_WIDTH-1:0] finish_fifo_tag[(2**FINISH_FIFO_AW)-1:0];
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
-reg op_table_is_head[OP_TABLE_SIZE-1:0];
-(* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
-reg [CL_OP_TABLE_SIZE-1:0] op_table_next_index[OP_TABLE_SIZE-1:0];
-(* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
-reg [CL_OP_TABLE_SIZE-1:0] op_table_prev_index[OP_TABLE_SIZE-1:0];
-wire [CL_OP_TABLE_SIZE-1:0] op_table_start_ptr;
-wire op_table_start_ptr_valid;
-reg [QUEUE_INDEX_WIDTH-1:0] op_table_start_queue;
-reg op_table_start_en;
-reg [CL_OP_TABLE_SIZE-1:0] op_table_doorbell_ptr;
-reg op_table_doorbell_en;
-reg [CL_OP_TABLE_SIZE-1:0] op_table_release_ptr;
-reg op_table_release_en;
-reg [CL_OP_TABLE_SIZE-1:0] op_table_update_next_ptr;
-reg [CL_OP_TABLE_SIZE-1:0] op_table_update_next_index;
-reg op_table_update_next_en;
-reg [CL_OP_TABLE_SIZE-1:0] op_table_update_prev_ptr;
-reg [CL_OP_TABLE_SIZE-1:0] op_table_update_prev_index;
-reg op_table_update_prev_is_head;
-reg op_table_update_prev_en;
-
-reg [CL_OP_TABLE_SIZE+1-1:0] finish_fifo_wr_ptr_reg = 0, finish_fifo_wr_ptr_next;
-reg [CL_OP_TABLE_SIZE+1-1:0] finish_fifo_rd_ptr_reg = 0, finish_fifo_rd_ptr_next;
-(* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
-reg [REQ_TAG_WIDTH-1:0] finish_fifo_tag[(2**CL_OP_TABLE_SIZE)-1:0];
-(* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
-reg finish_fifo_status[(2**CL_OP_TABLE_SIZE)-1:0];
+reg finish_fifo_status[(2**FINISH_FIFO_AW)-1:0];
 reg finish_fifo_we;
+reg [QUEUE_INDEX_WIDTH-1:0] finish_fifo_wr_queue;
 reg [REQ_TAG_WIDTH-1:0] finish_fifo_wr_tag;
 reg finish_fifo_wr_status;
 
-reg [CL_OP_TABLE_SIZE-1:0] finish_ptr_reg = {CL_OP_TABLE_SIZE{1'b0}}, finish_ptr_next;
+reg [QUEUE_INDEX_WIDTH-1:0] finish_queue_reg = {QUEUE_INDEX_WIDTH{1'b0}}, finish_queue_next;
+reg [REQ_TAG_WIDTH-1:0] finish_tag_reg = {REQ_TAG_WIDTH{1'b0}}, finish_tag_next;
 reg finish_status_reg = 1'b0, finish_status_next;
 reg finish_valid_reg = 1'b0, finish_valid_next;
 
 reg init_reg = 1'b0, init_next;
 reg [QUEUE_INDEX_WIDTH-1:0] init_index_reg = 0, init_index_next;
 
-reg [QUEUE_INDEX_WIDTH:0] active_queue_count_reg = 0, active_queue_count_next;
+reg [QUEUE_INDEX_WIDTH+1-1:0] active_queue_count_reg = 0, active_queue_count_next;
+
+reg [CL_OP_COUNT+1-1:0] active_op_count_reg = 0;
+reg inc_active_op;
+reg dec_active_op;
 
 assign m_axis_tx_req_queue = m_axis_tx_req_queue_reg;
 assign m_axis_tx_req_dest = m_axis_tx_req_dest_reg;
@@ -332,8 +308,6 @@ assign active = active_queue_count_reg != 0;
 
 wire [QUEUE_INDEX_WIDTH-1:0] s_axil_awaddr_queue = s_axil_awaddr >> 2;
 wire [QUEUE_INDEX_WIDTH-1:0] s_axil_araddr_queue = s_axil_araddr >> 2;
-
-wire queue_tail_active = op_table_active[queue_ram_rd_data_op_tail_index] && op_table_queue[queue_ram_rd_data_op_tail_index] == queue_ram_addr_pipeline_reg[PIPELINE-1];
 
 wire [QUEUE_INDEX_WIDTH-1:0] axis_doorbell_fifo_queue;
 wire axis_doorbell_fifo_valid;
@@ -445,17 +419,6 @@ rr_fifo (
     .status_good_frame()
 );
 
-priority_encoder #(
-    .WIDTH(OP_TABLE_SIZE),
-    .LSB_HIGH_PRIORITY(1)
-)
-op_table_start_enc_inst (
-    .input_unencoded(~op_table_active),
-    .output_valid(op_table_start_ptr_valid),
-    .output_encoded(op_table_start_ptr),
-    .output_unencoded()
-);
-
 integer i, j;
 
 initial begin
@@ -474,14 +437,6 @@ initial begin
 
         queue_ram_rd_data_ovrd_pipe_reg[i] = 0;
         queue_ram_rd_data_ovrd_en_pipe_reg[i] = 0;
-    end
-
-    for (i = 0; i < OP_TABLE_SIZE; i = i + 1) begin
-        op_table_queue[i] = 0;
-        op_table_next_index[i] = 0;
-        op_table_prev_index[i] = 0;
-        op_table_doorbell[i] = 0;
-        op_table_is_head[i] = 0;
     end
 end
 
@@ -767,7 +722,6 @@ always @* begin
     write_data_pipeline_next[0] = 0;
     write_strobe_pipeline_next[0] = 0;
     req_tag_pipeline_next[0] = 0;
-    op_index_pipeline_next[0] = 0;
 
     queue_ram_rd_data_ovrd_pipe_next[0] = 0;
     queue_ram_rd_data_ovrd_en_pipe_next[0] = 0;
@@ -777,7 +731,6 @@ always @* begin
         write_data_pipeline_next[j] = write_data_pipeline_reg[j-1];
         write_strobe_pipeline_next[j] = write_strobe_pipeline_reg[j-1];
         req_tag_pipeline_next[j] = req_tag_pipeline_reg[j-1];
-        op_index_pipeline_next[j] = op_index_pipeline_reg[j-1];
 
         queue_ram_rd_data_ovrd_pipe_next[j] = queue_ram_rd_data_ovrd_pipe_reg[j-1];
         queue_ram_rd_data_ovrd_en_pipe_next[j] = queue_ram_rd_data_ovrd_en_pipe_reg[j-1];
@@ -803,27 +756,14 @@ always @* begin
     queue_ram_wr_en = 0;
     queue_ram_wr_strb = 0;
 
-    op_table_start_queue = queue_ram_addr_pipeline_reg[PIPELINE-1];
-    op_table_start_en = 1'b0;
-    op_table_doorbell_ptr = queue_ram_rd_data_op_tail_index;
-    op_table_doorbell_en = 1'b0;
-    op_table_release_ptr = op_index_pipeline_reg[PIPELINE-1];
-    op_table_release_en = 1'b0;
-    op_table_update_next_ptr = queue_ram_rd_data_op_tail_index;
-    op_table_update_next_index = op_index_pipeline_reg[PIPELINE-1];
-    op_table_update_next_en = 1'b0;
-    op_table_update_prev_ptr = op_index_pipeline_reg[PIPELINE-1];
-    op_table_update_prev_index = queue_ram_rd_data_op_tail_index;
-    op_table_update_prev_is_head = !(queue_tail_active && op_index_pipeline_reg[PIPELINE-1] != queue_ram_rd_data_op_tail_index);
-    op_table_update_prev_en = 1'b0;
-
     finish_fifo_rd_ptr_next = finish_fifo_rd_ptr_reg;
     finish_fifo_wr_ptr_next = finish_fifo_wr_ptr_reg;
     finish_fifo_we = 1'b0;
     finish_fifo_wr_tag = s_axis_tx_status_dequeue_tag;
     finish_fifo_wr_status = !s_axis_tx_status_dequeue_error && !s_axis_tx_status_dequeue_empty;
 
-    finish_ptr_next = finish_ptr_reg;
+    finish_queue_next = finish_queue_reg;
+    finish_tag_next = finish_tag_reg;
     finish_status_next = finish_status_reg;
     finish_valid_next = finish_valid_reg;
 
@@ -831,6 +771,9 @@ always @* begin
     init_index_next = init_index_reg;
 
     active_queue_count_next = active_queue_count_reg;
+
+    inc_active_op = 1'b0;
+    dec_active_op = 1'b0;
 
     axis_doorbell_fifo_ready = 1'b0;
 
@@ -887,13 +830,13 @@ always @* begin
         // transmit complete
         op_complete_pipe_next[0] = 1'b1;
 
-        write_data_pipeline_next[0][0] = finish_status_reg || op_table_doorbell[finish_ptr_reg];
-        op_index_pipeline_next[0] = finish_ptr_reg;
+        write_data_pipeline_next[0][0] = finish_status_reg;
+        req_tag_pipeline_next[0] = finish_tag_reg;
 
         finish_valid_next = 1'b0;
 
-        queue_ram_rd_addr = op_table_queue[finish_ptr_reg];
-        queue_ram_addr_pipeline_next[0] = op_table_queue[finish_ptr_reg];
+        queue_ram_rd_addr = finish_queue_reg;
+        queue_ram_addr_pipeline_next[0] = finish_queue_reg;
     end else if (SCHED_CTRL_ENABLE && s_axis_sched_ctrl_valid && !op_ctrl_pipe_reg[0]) begin
         // Scheduler control
         op_ctrl_pipe_next[0] = 1'b1;
@@ -904,18 +847,14 @@ always @* begin
 
         queue_ram_rd_addr = s_axis_sched_ctrl_queue;
         queue_ram_addr_pipeline_next[0] = s_axis_sched_ctrl_queue;
-    end else if (enable && enable_reg && op_table_start_ptr_valid && axis_scheduler_fifo_out_valid && ch_fetch_fc_av_reg && (!m_axis_tx_req_valid || m_axis_tx_req_ready) && !op_req_pipe_reg) begin
+    end else if (enable && enable_reg && !active_op_count_reg[CL_OP_COUNT] && axis_scheduler_fifo_out_valid && ch_fetch_fc_av_reg && (!m_axis_tx_req_valid || m_axis_tx_req_ready) && !op_req_pipe_reg) begin
         // transmit request
         op_req_pipe_next[0] = 1'b1;
-
-        op_table_start_en = 1'b1;
-        op_table_start_queue = axis_scheduler_fifo_out_queue;
-
-        op_index_pipeline_next[0] = op_table_start_ptr;
 
         axis_scheduler_fifo_out_ready = 1'b1;
 
         ch_fetch_fc_cons_en = 1'b1;
+        inc_active_op = 1'b1;
 
         queue_ram_rd_addr = axis_scheduler_fifo_out_queue;
         queue_ram_addr_pipeline_next[0] = axis_scheduler_fifo_out_queue;
@@ -940,7 +879,8 @@ always @* begin
         // mark queue active
         queue_ram_wr_addr = queue_ram_addr_pipeline_reg[PIPELINE-1];
         queue_ram_wr_data[6] = 1'b1; // queue active
-        queue_ram_wr_strb[0] = 1'b1;
+        queue_ram_wr_data[15:8] = queue_ram_rd_data_gen_id+1; // generation ID
+        queue_ram_wr_strb[1:0] = 2'b11;
         queue_ram_wr_en = 1'b1;
 
         // schedule queue if necessary
@@ -952,31 +892,17 @@ always @* begin
 
             active_queue_count_next = active_queue_count_reg + 1;
         end
-
-        if (queue_tail_active) begin
-            // record doorbell in table so we don't lose it
-            op_table_doorbell_ptr = queue_ram_rd_data_op_tail_index;
-            op_table_doorbell_en = 1'b1;
-        end
     end else if (op_req_pipe_reg[PIPELINE-1]) begin
         // transmit request
         m_axis_tx_req_queue_next = queue_ram_addr_pipeline_reg[PIPELINE-1];
-        m_axis_tx_req_tag_next = op_index_pipeline_reg[PIPELINE-1];
+        m_axis_tx_req_tag_next = queue_ram_rd_data_gen_id;
 
         axis_scheduler_fifo_in_queue = queue_ram_addr_pipeline_reg[PIPELINE-1];
 
         // update state
         queue_ram_wr_addr = queue_ram_addr_pipeline_reg[PIPELINE-1];
-        queue_ram_wr_data[15:8] = op_index_pipeline_reg[PIPELINE-1]; // tail index
         queue_ram_wr_strb[0] = 1'b1;
         queue_ram_wr_en = 1'b1;
-
-        op_table_update_prev_ptr = op_index_pipeline_reg[PIPELINE-1];
-        op_table_update_prev_index = queue_ram_rd_data_op_tail_index;
-        op_table_update_prev_is_head = !(queue_tail_active && op_index_pipeline_reg[PIPELINE-1] != queue_ram_rd_data_op_tail_index);
-
-        op_table_update_next_ptr = queue_ram_rd_data_op_tail_index;
-        op_table_update_next_index = op_index_pipeline_reg[PIPELINE-1];
 
         if (queue_ram_rd_data_enabled && !queue_ram_rd_data_paused && queue_ram_rd_data_active && queue_ram_rd_data_scheduled) begin
             // queue enabled, active, and scheduled
@@ -989,21 +915,15 @@ always @* begin
 
             // update state
             queue_ram_wr_data[7] = 1'b1; // queue scheduled
-            queue_ram_wr_strb[1] = 1'b1; // tail index
-
-            op_table_update_prev_en = 1'b1;
-            op_table_update_next_en = queue_tail_active && op_index_pipeline_reg[PIPELINE-1] != queue_ram_rd_data_op_tail_index;
         end else begin
             // queue not enabled, not active, or not scheduled
             // deschedule queue
-
-            op_table_release_ptr = op_index_pipeline_reg[PIPELINE-1];
-            op_table_release_en = 1'b1;
 
             // update state
             queue_ram_wr_data[7] = 1'b0; // queue scheduled
 
             ch_fetch_fc_rel_sched_fail_en = 1'b1;
+            dec_active_op = 1'b1;
 
             if (queue_ram_rd_data_scheduled) begin
                 active_queue_count_next = active_queue_count_reg - 1;
@@ -1017,34 +937,10 @@ always @* begin
         queue_ram_wr_strb[0] = 1'b1;
         queue_ram_wr_en = 1'b1;
 
-        op_table_update_prev_ptr = op_table_next_index[op_index_pipeline_reg[PIPELINE-1]];
-        op_table_update_prev_index = op_table_prev_index[op_index_pipeline_reg[PIPELINE-1]];
-        op_table_update_prev_is_head = op_table_is_head[op_index_pipeline_reg[PIPELINE-1]];
-        op_table_update_prev_en = op_index_pipeline_reg[PIPELINE-1] != queue_ram_rd_data_op_tail_index; // our next pointer only valid if we're not the tail
+        dec_active_op = 1'b1;
 
-        op_table_update_next_ptr = op_table_prev_index[op_index_pipeline_reg[PIPELINE-1]];
-        op_table_update_next_index = op_table_next_index[op_index_pipeline_reg[PIPELINE-1]];
-        op_table_update_next_en = !op_table_is_head[op_index_pipeline_reg[PIPELINE-1]]; // our prev index only valid if we're not the head element
-
-        op_table_doorbell_ptr = op_table_prev_index[op_index_pipeline_reg[PIPELINE-1]];
-        op_table_doorbell_en = !op_table_is_head[op_index_pipeline_reg[PIPELINE-1]] && op_table_doorbell[op_index_pipeline_reg[PIPELINE-1]];;
-
-        op_table_release_ptr = op_index_pipeline_reg[PIPELINE-1];
-        op_table_release_en = 1'b1;
-
-        if (write_data_pipeline_reg[PIPELINE-1][0]) begin
-            queue_ram_wr_data[6] = 1'b1; // queue active
-
-            // schedule if necessary
-            if (queue_ram_rd_data_enabled && !queue_ram_rd_data_paused && !queue_ram_rd_data_scheduled) begin
-                queue_ram_wr_data[7] = 1'b1; // queue scheduled
-
-                axis_scheduler_fifo_in_queue = queue_ram_addr_pipeline_reg[PIPELINE-1];
-                axis_scheduler_fifo_in_valid = 1'b1;
-
-                active_queue_count_next = active_queue_count_reg + 1;
-            end
-        end else begin
+        if (!write_data_pipeline_reg[PIPELINE-1][0] && req_tag_pipeline_reg[PIPELINE-1] == queue_ram_rd_data_gen_id) begin
+            // operation failed and generation ID matches; set queue inactive
             queue_ram_wr_data[6] = 1'b0; // queue active
         end
     end else if (SCHED_CTRL_ENABLE && op_ctrl_pipe_reg[PIPELINE-1]) begin
@@ -1145,14 +1041,16 @@ always @* begin
     // finish transmit operation
     if (s_axis_tx_status_dequeue_valid) begin
         finish_fifo_we = 1'b1;
+        finish_fifo_wr_queue = s_axis_tx_status_dequeue_queue;
         finish_fifo_wr_tag = s_axis_tx_status_dequeue_tag;
         finish_fifo_wr_status = !s_axis_tx_status_dequeue_error && !s_axis_tx_status_dequeue_empty;
         finish_fifo_wr_ptr_next = finish_fifo_wr_ptr_reg + 1;
     end
 
     if (!finish_valid_reg && finish_fifo_wr_ptr_reg != finish_fifo_rd_ptr_reg) begin
-        finish_ptr_next = finish_fifo_tag[finish_fifo_rd_ptr_reg[CL_OP_TABLE_SIZE-1:0]];
-        finish_status_next = finish_fifo_status[finish_fifo_rd_ptr_reg[CL_OP_TABLE_SIZE-1:0]];
+        finish_queue_next = finish_fifo_queue[finish_fifo_rd_ptr_reg[FINISH_FIFO_AW-1:0]];
+        finish_tag_next = finish_fifo_tag[finish_fifo_rd_ptr_reg[FINISH_FIFO_AW-1:0]];
+        finish_status_next = finish_fifo_status[finish_fifo_rd_ptr_reg[FINISH_FIFO_AW-1:0]];
         finish_valid_next = 1'b1;
         finish_fifo_rd_ptr_next = finish_fifo_rd_ptr_reg + 1;
     end
@@ -1170,7 +1068,8 @@ always @(posedge clk) begin
     finish_fifo_rd_ptr_reg <= finish_fifo_rd_ptr_next;
     finish_fifo_wr_ptr_reg <= finish_fifo_wr_ptr_next;
 
-    finish_ptr_reg <= finish_ptr_next;
+    finish_queue_reg <= finish_queue_next;
+    finish_tag_reg <= finish_tag_next;
     finish_status_reg <= finish_status_next;
     finish_valid_reg <= finish_valid_next;
 
@@ -1191,13 +1090,13 @@ always @(posedge clk) begin
     init_index_reg <= init_index_next;
 
     active_queue_count_reg <= active_queue_count_next;
+    active_op_count_reg <= active_op_count_reg + inc_active_op - dec_active_op;
 
     for (i = 0; i < PIPELINE; i = i + 1) begin
         queue_ram_addr_pipeline_reg[i] <= queue_ram_addr_pipeline_next[i];
         write_data_pipeline_reg[i] <= write_data_pipeline_next[i];
         write_strobe_pipeline_reg[i] <= write_strobe_pipeline_next[i];
         req_tag_pipeline_reg[i] <= req_tag_pipeline_next[i];
-        op_index_pipeline_reg[i] <= op_index_pipeline_next[i];
 
         queue_ram_rd_data_ovrd_pipe_reg[i] <= queue_ram_rd_data_ovrd_pipe_next[i];
         queue_ram_rd_data_ovrd_en_pipe_reg[i] <= queue_ram_rd_data_ovrd_en_pipe_next[i];
@@ -1216,28 +1115,10 @@ always @(posedge clk) begin
         queue_ram_rd_data_pipe_reg[i] <= queue_ram_rd_data_pipe_reg[i-1];
     end
 
-    if (op_table_start_en) begin
-        op_table_queue[op_table_start_ptr] <= op_table_start_queue;
-        op_table_doorbell[op_table_start_ptr] <= 1'b0;
-        op_table_active[op_table_start_ptr] <= 1'b1;
-    end
-    if (op_table_doorbell_en) begin
-        op_table_doorbell[op_table_doorbell_ptr] <= 1'b1;
-    end
-    if (op_table_update_next_en) begin
-        op_table_next_index[op_table_update_next_ptr] <= op_table_update_next_index;
-    end
-    if (op_table_update_prev_en) begin
-        op_table_prev_index[op_table_update_prev_ptr] <= op_table_update_prev_index;
-        op_table_is_head[op_table_update_prev_ptr] <= op_table_update_prev_is_head;
-    end
-    if (op_table_release_en) begin
-        op_table_active[op_table_release_ptr] <= 1'b0;
-    end
-
     if (finish_fifo_we) begin
-        finish_fifo_tag[finish_fifo_wr_ptr_reg[CL_OP_TABLE_SIZE-1:0]] <= finish_fifo_wr_tag;
-        finish_fifo_status[finish_fifo_wr_ptr_reg[CL_OP_TABLE_SIZE-1:0]] <= finish_fifo_wr_status;
+        finish_fifo_queue[finish_fifo_wr_ptr_reg[FINISH_FIFO_AW-1:0]] <= finish_fifo_wr_queue;
+        finish_fifo_tag[finish_fifo_wr_ptr_reg[FINISH_FIFO_AW-1:0]] <= finish_fifo_wr_tag;
+        finish_fifo_status[finish_fifo_wr_ptr_reg[FINISH_FIFO_AW-1:0]] <= finish_fifo_wr_status;
     end
 
     if (rst) begin
@@ -1249,8 +1130,8 @@ always @(posedge clk) begin
         op_ctrl_pipe_reg <= {PIPELINE{1'b0}};
         op_internal_pipe_reg <= {PIPELINE{1'b0}};
 
-        finish_fifo_rd_ptr_reg <= {CL_OP_TABLE_SIZE+1{1'b0}};
-        finish_fifo_wr_ptr_reg <= {CL_OP_TABLE_SIZE+1{1'b0}};
+        finish_fifo_rd_ptr_reg <= {FINISH_FIFO_AW+1{1'b0}};
+        finish_fifo_wr_ptr_reg <= {FINISH_FIFO_AW+1{1'b0}};
 
         finish_valid_reg <= 1'b0;
 
@@ -1268,8 +1149,7 @@ always @(posedge clk) begin
         init_index_reg <= 0;
 
         active_queue_count_reg <= 0;
-
-        op_table_active <= 0;
+        active_op_count_reg <= 0;
     end
 end
 

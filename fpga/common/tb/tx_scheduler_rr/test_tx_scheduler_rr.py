@@ -221,8 +221,8 @@ async def run_test_single(dut, idle_inserter=None, backpressure_inserter=None):
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
 
-    for k in range(200):
-        await RisingEdge(dut.clk)
+        for k in range(10):
+            await RisingEdge(dut.clk)
 
     await RisingEdge(dut.clk)
     await RisingEdge(dut.clk)
@@ -284,6 +284,9 @@ async def run_test_multiple(dut, idle_inserter=None, backpressure_inserter=None)
         status = TxStatusTransaction(empty=1, error=0, len=0, queue=tx_req.queue, tag=tx_req.tag)
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
+
+        for k in range(10):
+            await RisingEdge(dut.clk)
 
     await RisingEdge(dut.clk)
     await RisingEdge(dut.clk)
@@ -394,6 +397,9 @@ async def run_test_doorbell(dut, idle_inserter=None, backpressure_inserter=None)
         tb.log.info("TX status: %s", status)
         await tb.tx_status_dequeue_source.send(status)
 
+        for k in range(10):
+            await RisingEdge(dut.clk)
+
     await RisingEdge(dut.clk)
     await RisingEdge(dut.clk)
 
@@ -446,7 +452,6 @@ def test_tx_scheduler_rr(request):
     parameters['LEN_WIDTH'] = 16
     parameters['REQ_DEST_WIDTH'] = 8
     parameters['REQ_TAG_WIDTH'] = 8
-    parameters['OP_TABLE_SIZE'] = 16
     parameters['QUEUE_INDEX_WIDTH'] = 6
     parameters['PIPELINE'] = 2
     parameters['SCHED_CTRL_ENABLE'] = 1
