@@ -267,16 +267,12 @@ reg [FINISH_FIFO_AW+1-1:0] finish_fifo_rd_ptr_reg = 0, finish_fifo_rd_ptr_next;
 reg [QUEUE_INDEX_WIDTH-1:0] finish_fifo_queue[(2**FINISH_FIFO_AW)-1:0];
 (* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
 reg [REQ_TAG_WIDTH-1:0] finish_fifo_tag[(2**FINISH_FIFO_AW)-1:0];
-(* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
-reg finish_fifo_status[(2**FINISH_FIFO_AW)-1:0];
 reg finish_fifo_we;
 reg [QUEUE_INDEX_WIDTH-1:0] finish_fifo_wr_queue;
 reg [REQ_TAG_WIDTH-1:0] finish_fifo_wr_tag;
-reg finish_fifo_wr_status;
 
 reg [QUEUE_INDEX_WIDTH-1:0] finish_queue_reg = {QUEUE_INDEX_WIDTH{1'b0}}, finish_queue_next;
 reg [REQ_TAG_WIDTH-1:0] finish_tag_reg = {REQ_TAG_WIDTH{1'b0}}, finish_tag_next;
-reg finish_status_reg = 1'b0, finish_status_next;
 reg finish_valid_reg = 1'b0, finish_valid_next;
 
 reg init_reg = 1'b0, init_next;
@@ -286,7 +282,8 @@ reg [QUEUE_INDEX_WIDTH+1-1:0] active_queue_count_reg = 0, active_queue_count_nex
 
 reg [CL_OP_COUNT+1-1:0] active_op_count_reg = 0;
 reg inc_active_op;
-reg dec_active_op;
+reg dec_active_op_1;
+reg dec_active_op_2;
 
 assign m_axis_tx_req_queue = m_axis_tx_req_queue_reg;
 assign m_axis_tx_req_dest = m_axis_tx_req_dest_reg;
@@ -759,12 +756,11 @@ always @* begin
     finish_fifo_rd_ptr_next = finish_fifo_rd_ptr_reg;
     finish_fifo_wr_ptr_next = finish_fifo_wr_ptr_reg;
     finish_fifo_we = 1'b0;
+    finish_fifo_wr_queue = s_axis_tx_status_dequeue_queue;
     finish_fifo_wr_tag = s_axis_tx_status_dequeue_tag;
-    finish_fifo_wr_status = !s_axis_tx_status_dequeue_error && !s_axis_tx_status_dequeue_empty;
 
     finish_queue_next = finish_queue_reg;
     finish_tag_next = finish_tag_reg;
-    finish_status_next = finish_status_reg;
     finish_valid_next = finish_valid_reg;
 
     init_next = init_reg;
@@ -773,7 +769,8 @@ always @* begin
     active_queue_count_next = active_queue_count_reg;
 
     inc_active_op = 1'b0;
-    dec_active_op = 1'b0;
+    dec_active_op_1 = 1'b0;
+    dec_active_op_2 = 1'b0;
 
     axis_doorbell_fifo_ready = 1'b0;
 
@@ -826,11 +823,10 @@ always @* begin
 
         queue_ram_rd_addr = axis_doorbell_fifo_queue;
         queue_ram_addr_pipeline_next[0] = axis_doorbell_fifo_queue;
-    end else if (finish_valid_reg && !op_complete_pipe_reg[0]) begin
+    end else if (finish_valid_reg) begin
         // transmit complete
         op_complete_pipe_next[0] = 1'b1;
 
-        write_data_pipeline_next[0][0] = finish_status_reg;
         req_tag_pipeline_next[0] = finish_tag_reg;
 
         finish_valid_next = 1'b0;
@@ -923,7 +919,7 @@ always @* begin
             queue_ram_wr_data[7] = 1'b0; // queue scheduled
 
             ch_fetch_fc_rel_sched_fail_en = 1'b1;
-            dec_active_op = 1'b1;
+            dec_active_op_1 = 1'b1;
 
             if (queue_ram_rd_data_scheduled) begin
                 active_queue_count_next = active_queue_count_reg - 1;
@@ -937,9 +933,9 @@ always @* begin
         queue_ram_wr_strb[0] = 1'b1;
         queue_ram_wr_en = 1'b1;
 
-        dec_active_op = 1'b1;
+        dec_active_op_1 = 1'b1;
 
-        if (!write_data_pipeline_reg[PIPELINE-1][0] && req_tag_pipeline_reg[PIPELINE-1] == queue_ram_rd_data_gen_id) begin
+        if (req_tag_pipeline_reg[PIPELINE-1] == queue_ram_rd_data_gen_id) begin
             // operation failed and generation ID matches; set queue inactive
             queue_ram_wr_data[6] = 1'b0; // queue active
         end
@@ -1040,17 +1036,22 @@ always @* begin
 
     // finish transmit operation
     if (s_axis_tx_status_dequeue_valid) begin
-        finish_fifo_we = 1'b1;
         finish_fifo_wr_queue = s_axis_tx_status_dequeue_queue;
         finish_fifo_wr_tag = s_axis_tx_status_dequeue_tag;
-        finish_fifo_wr_status = !s_axis_tx_status_dequeue_error && !s_axis_tx_status_dequeue_empty;
-        finish_fifo_wr_ptr_next = finish_fifo_wr_ptr_reg + 1;
+
+        if (s_axis_tx_status_dequeue_error || s_axis_tx_status_dequeue_empty) begin
+            // dequeue failed, hand off to pipeline
+            finish_fifo_we = 1'b1;
+            finish_fifo_wr_ptr_next = finish_fifo_wr_ptr_reg + 1;
+        end else begin
+            // dequeue succeeded
+            dec_active_op_2 = 1'b1;
+        end
     end
 
     if (!finish_valid_reg && finish_fifo_wr_ptr_reg != finish_fifo_rd_ptr_reg) begin
         finish_queue_next = finish_fifo_queue[finish_fifo_rd_ptr_reg[FINISH_FIFO_AW-1:0]];
         finish_tag_next = finish_fifo_tag[finish_fifo_rd_ptr_reg[FINISH_FIFO_AW-1:0]];
-        finish_status_next = finish_fifo_status[finish_fifo_rd_ptr_reg[FINISH_FIFO_AW-1:0]];
         finish_valid_next = 1'b1;
         finish_fifo_rd_ptr_next = finish_fifo_rd_ptr_reg + 1;
     end
@@ -1070,7 +1071,6 @@ always @(posedge clk) begin
 
     finish_queue_reg <= finish_queue_next;
     finish_tag_reg <= finish_tag_next;
-    finish_status_reg <= finish_status_next;
     finish_valid_reg <= finish_valid_next;
 
     m_axis_tx_req_queue_reg <= m_axis_tx_req_queue_next;
@@ -1090,7 +1090,7 @@ always @(posedge clk) begin
     init_index_reg <= init_index_next;
 
     active_queue_count_reg <= active_queue_count_next;
-    active_op_count_reg <= active_op_count_reg + inc_active_op - dec_active_op;
+    active_op_count_reg <= active_op_count_reg + inc_active_op - dec_active_op_1 - dec_active_op_2;
 
     for (i = 0; i < PIPELINE; i = i + 1) begin
         queue_ram_addr_pipeline_reg[i] <= queue_ram_addr_pipeline_next[i];
@@ -1118,7 +1118,6 @@ always @(posedge clk) begin
     if (finish_fifo_we) begin
         finish_fifo_queue[finish_fifo_wr_ptr_reg[FINISH_FIFO_AW-1:0]] <= finish_fifo_wr_queue;
         finish_fifo_tag[finish_fifo_wr_ptr_reg[FINISH_FIFO_AW-1:0]] <= finish_fifo_wr_tag;
-        finish_fifo_status[finish_fifo_wr_ptr_reg[FINISH_FIFO_AW-1:0]] <= finish_fifo_wr_status;
     end
 
     if (rst) begin
