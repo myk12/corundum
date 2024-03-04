@@ -143,6 +143,8 @@ localparam GEN_ID_W = REQ_TAG_WIDTH < 8 ? REQ_TAG_WIDTH : 8;
 localparam CL_OP_COUNT = PKT_FC_W;
 localparam FINISH_FIFO_AW = CL_OP_COUNT;
 
+localparam OUTPUT_FIFO_AW = $clog2(PIPELINE*2+2);
+
 localparam RAM_BE_W = 2;
 localparam RAM_WIDTH = RAM_BE_W*8;
 
@@ -204,10 +206,7 @@ reg [AXIL_DATA_WIDTH-1:0] write_data_pipeline_reg[PIPELINE-1:0], write_data_pipe
 reg [AXIL_STRB_WIDTH-1:0] write_strobe_pipeline_reg[PIPELINE-1:0], write_strobe_pipeline_next[PIPELINE-1:0];
 reg [REQ_TAG_WIDTH-1:0] req_tag_pipeline_reg[PIPELINE-1:0], req_tag_pipeline_next[PIPELINE-1:0];
 
-reg [QUEUE_INDEX_WIDTH-1:0] m_axis_tx_req_queue_reg = {QUEUE_INDEX_WIDTH{1'b0}}, m_axis_tx_req_queue_next;
-reg [REQ_DEST_WIDTH-1:0] m_axis_tx_req_dest_reg = REQ_DEST_DEFAULT;
-reg [REQ_TAG_WIDTH-1:0] m_axis_tx_req_tag_reg = {REQ_TAG_WIDTH{1'b0}}, m_axis_tx_req_tag_next;
-reg m_axis_tx_req_valid_reg = 1'b0, m_axis_tx_req_valid_next;
+reg [REQ_DEST_WIDTH-1:0] tx_req_dest_reg = REQ_DEST_DEFAULT;
 
 reg s_axis_sched_ctrl_ready_reg = 1'b0, s_axis_sched_ctrl_ready_next;
 
@@ -285,10 +284,12 @@ reg inc_active_op;
 reg dec_active_op_1;
 reg dec_active_op_2;
 
-assign m_axis_tx_req_queue = m_axis_tx_req_queue_reg;
-assign m_axis_tx_req_dest = m_axis_tx_req_dest_reg;
-assign m_axis_tx_req_tag = m_axis_tx_req_tag_reg;
-assign m_axis_tx_req_valid = m_axis_tx_req_valid_reg;
+// internal datapath
+reg  [QUEUE_INDEX_WIDTH-1:0] m_axis_tx_req_queue_int;
+reg  [REQ_DEST_WIDTH-1:0]    m_axis_tx_req_dest_int;
+reg  [REQ_TAG_WIDTH-1:0]     m_axis_tx_req_tag_int;
+reg                          m_axis_tx_req_valid_int;
+wire                         m_axis_tx_req_ready_int;
 
 assign s_axis_sched_ctrl_ready = s_axis_sched_ctrl_ready_reg;
 
@@ -623,7 +624,7 @@ always @(posedge clk) begin
             end
             RBB+8'h24: begin
                 if (ctrl_reg_wr_strb[1:0]) begin
-                    m_axis_tx_req_dest_reg <= ctrl_reg_wr_data[15:0];
+                    tx_req_dest_reg <= ctrl_reg_wr_data[15:0];
                 end
                 if (ctrl_reg_wr_strb[3:2]) begin
                     // TODO
@@ -674,7 +675,7 @@ always @(posedge clk) begin
                 ctrl_reg_rd_data_reg[19] <= axis_scheduler_fifo_out_valid;
             end
             RBB+8'h24: begin
-                ctrl_reg_rd_data_reg[15:0]  <= m_axis_tx_req_dest_reg;
+                ctrl_reg_rd_data_reg[15:0]  <= tx_req_dest_reg;
                 // TODO
                 ctrl_reg_rd_data_reg[31:16] <= 1; // ch_pkt_fc_budget_reg;
             end
@@ -694,7 +695,7 @@ always @(posedge clk) begin
         ctrl_reg_rd_ack_reg <= 1'b0;
 
         enable_reg <= 1'b0;
-        m_axis_tx_req_dest_reg <= REQ_DEST_DEFAULT;
+        tx_req_dest_reg <= REQ_DEST_DEFAULT;
 
         ch_enable_reg <= 0;
         ch_pkt_fc_lim_reg <= {PKT_FC_W{1'b1}};
@@ -733,10 +734,6 @@ always @* begin
         queue_ram_rd_data_ovrd_en_pipe_next[j] = queue_ram_rd_data_ovrd_en_pipe_reg[j-1];
     end
 
-    m_axis_tx_req_queue_next = m_axis_tx_req_queue_reg;
-    m_axis_tx_req_tag_next = m_axis_tx_req_tag_reg;
-    m_axis_tx_req_valid_next = m_axis_tx_req_valid_reg && !m_axis_tx_req_ready;
-
     s_axis_sched_ctrl_ready_next = 1'b0;
 
     s_axil_awready_next = 1'b0;
@@ -771,6 +768,11 @@ always @* begin
     inc_active_op = 1'b0;
     dec_active_op_1 = 1'b0;
     dec_active_op_2 = 1'b0;
+
+    m_axis_tx_req_queue_int = queue_ram_addr_pipeline_reg[PIPELINE-1];
+    m_axis_tx_req_dest_int = tx_req_dest_reg;
+    m_axis_tx_req_tag_int = queue_ram_rd_data_gen_id;
+    m_axis_tx_req_valid_int = 1'b0;
 
     axis_doorbell_fifo_ready = 1'b0;
 
@@ -843,7 +845,7 @@ always @* begin
 
         queue_ram_rd_addr = s_axis_sched_ctrl_queue;
         queue_ram_addr_pipeline_next[0] = s_axis_sched_ctrl_queue;
-    end else if (enable && enable_reg && !active_op_count_reg[CL_OP_COUNT] && axis_scheduler_fifo_out_valid && ch_fetch_fc_av_reg && (!m_axis_tx_req_valid || m_axis_tx_req_ready) && !op_req_pipe_reg) begin
+    end else if (enable && enable_reg && !active_op_count_reg[CL_OP_COUNT] && axis_scheduler_fifo_out_valid && ch_fetch_fc_av_reg && m_axis_tx_req_ready_int) begin
         // transmit request
         op_req_pipe_next[0] = 1'b1;
 
@@ -890,8 +892,9 @@ always @* begin
         end
     end else if (op_req_pipe_reg[PIPELINE-1]) begin
         // transmit request
-        m_axis_tx_req_queue_next = queue_ram_addr_pipeline_reg[PIPELINE-1];
-        m_axis_tx_req_tag_next = queue_ram_rd_data_gen_id;
+        m_axis_tx_req_queue_int = queue_ram_addr_pipeline_reg[PIPELINE-1];
+        m_axis_tx_req_dest_int = tx_req_dest_reg;
+        m_axis_tx_req_tag_int = queue_ram_rd_data_gen_id;
 
         axis_scheduler_fifo_in_queue = queue_ram_addr_pipeline_reg[PIPELINE-1];
 
@@ -904,7 +907,7 @@ always @* begin
             // queue enabled, active, and scheduled
 
             // issue transmit request
-            m_axis_tx_req_valid_next = 1'b1;
+            m_axis_tx_req_valid_int = 1'b1;
 
             // reschedule
             axis_scheduler_fifo_in_valid = 1'b1;
@@ -1073,10 +1076,6 @@ always @(posedge clk) begin
     finish_tag_reg <= finish_tag_next;
     finish_valid_reg <= finish_valid_next;
 
-    m_axis_tx_req_queue_reg <= m_axis_tx_req_queue_next;
-    m_axis_tx_req_tag_reg <= m_axis_tx_req_tag_next;
-    m_axis_tx_req_valid_reg <= m_axis_tx_req_valid_next;
-
     s_axis_sched_ctrl_ready_reg <= s_axis_sched_ctrl_ready_next;
 
     s_axil_awready_reg <= s_axil_awready_next;
@@ -1134,8 +1133,6 @@ always @(posedge clk) begin
 
         finish_valid_reg <= 1'b0;
 
-        m_axis_tx_req_valid_reg <= 1'b0;
-
         s_axis_sched_ctrl_ready_reg <= 1'b0;
 
         s_axil_awready_reg <= 1'b0;
@@ -1149,6 +1146,60 @@ always @(posedge clk) begin
 
         active_queue_count_reg <= 0;
         active_op_count_reg <= 0;
+    end
+end
+
+// output datapath logic
+reg [QUEUE_INDEX_WIDTH-1:0] m_axis_tx_req_queue_reg = 0;
+reg [REQ_DEST_WIDTH-1:0]    m_axis_tx_req_dest_reg  = 0;
+reg [REQ_TAG_WIDTH-1:0]     m_axis_tx_req_tag_reg   = 0;
+reg                         m_axis_tx_req_valid_reg = 1'b0;
+
+reg [OUTPUT_FIFO_AW+1-1:0] out_fifo_wr_ptr_reg = 0;
+reg [OUTPUT_FIFO_AW+1-1:0] out_fifo_rd_ptr_reg = 0;
+reg out_fifo_half_full_reg = 1'b0;
+
+wire out_fifo_full = out_fifo_wr_ptr_reg == (out_fifo_rd_ptr_reg ^ {1'b1, {OUTPUT_FIFO_AW{1'b0}}});
+wire out_fifo_empty = out_fifo_wr_ptr_reg == out_fifo_rd_ptr_reg;
+
+(* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
+reg [QUEUE_INDEX_WIDTH-1:0] out_fifo_tx_req_queue[2**OUTPUT_FIFO_AW-1:0];
+(* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
+reg [REQ_DEST_WIDTH-1:0] out_fifo_tx_req_dest[2**OUTPUT_FIFO_AW-1:0];
+(* ram_style = "distributed", ramstyle = "no_rw_check, mlab" *)
+reg [REQ_TAG_WIDTH-1:0] out_fifo_tx_req_tag[2**OUTPUT_FIFO_AW-1:0];
+
+assign m_axis_tx_req_ready_int = !out_fifo_half_full_reg;
+
+assign m_axis_tx_req_queue = m_axis_tx_req_queue_reg;
+assign m_axis_tx_req_dest  = m_axis_tx_req_dest_reg;
+assign m_axis_tx_req_tag   = m_axis_tx_req_tag_reg;
+assign m_axis_tx_req_valid = m_axis_tx_req_valid_reg;
+
+always @(posedge clk) begin
+    m_axis_tx_req_valid_reg <= m_axis_tx_req_valid_reg && !m_axis_tx_req_ready;
+
+    out_fifo_half_full_reg <= $unsigned(out_fifo_wr_ptr_reg - out_fifo_rd_ptr_reg) >= 2**(OUTPUT_FIFO_AW-1);
+
+    if (!out_fifo_full && m_axis_tx_req_valid_int) begin
+        out_fifo_tx_req_queue[out_fifo_wr_ptr_reg[OUTPUT_FIFO_AW-1:0]] <= m_axis_tx_req_queue_int;
+        out_fifo_tx_req_dest[out_fifo_wr_ptr_reg[OUTPUT_FIFO_AW-1:0]] <= m_axis_tx_req_dest_int;
+        out_fifo_tx_req_tag[out_fifo_wr_ptr_reg[OUTPUT_FIFO_AW-1:0]] <= m_axis_tx_req_tag_int;
+        out_fifo_wr_ptr_reg <= out_fifo_wr_ptr_reg + 1;
+    end
+
+    if (!out_fifo_empty && (!m_axis_tx_req_valid_reg || m_axis_tx_req_ready)) begin
+        m_axis_tx_req_queue_reg <= out_fifo_tx_req_queue[out_fifo_rd_ptr_reg[OUTPUT_FIFO_AW-1:0]];
+        m_axis_tx_req_dest_reg <= out_fifo_tx_req_dest[out_fifo_rd_ptr_reg[OUTPUT_FIFO_AW-1:0]];
+        m_axis_tx_req_tag_reg <= out_fifo_tx_req_tag[out_fifo_rd_ptr_reg[OUTPUT_FIFO_AW-1:0]];
+        m_axis_tx_req_valid_reg <= 1'b1;
+        out_fifo_rd_ptr_reg <= out_fifo_rd_ptr_reg + 1;
+    end
+
+    if (rst) begin
+        out_fifo_wr_ptr_reg <= 0;
+        out_fifo_rd_ptr_reg <= 0;
+        m_axis_tx_req_valid_reg <= 1'b0;
     end
 end
 
