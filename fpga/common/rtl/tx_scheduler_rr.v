@@ -145,8 +145,7 @@ localparam FINISH_FIFO_AW = CL_OP_COUNT;
 
 localparam OUTPUT_FIFO_AW = $clog2(PIPELINE*2+2);
 
-localparam RAM_BE_W = 2;
-localparam RAM_WIDTH = RAM_BE_W*8;
+localparam RAM_WIDTH = 16;
 
 localparam RBB = RB_BASE_ADDR & {REG_ADDR_WIDTH{1'b1}};
 
@@ -223,14 +222,13 @@ reg [QUEUE_INDEX_WIDTH-1:0] queue_ram_rd_addr;
 reg [QUEUE_INDEX_WIDTH-1:0] queue_ram_wr_addr;
 reg [RAM_WIDTH-1:0] queue_ram_wr_data;
 reg queue_ram_wr_en;
-reg [RAM_BE_W-1:0] queue_ram_wr_strb;
 reg [RAM_WIDTH-1:0] queue_ram_rd_data_reg = 0;
 reg [RAM_WIDTH-1:0] queue_ram_rd_data_pipe_reg[PIPELINE-1:1];
 
 reg [RAM_WIDTH-1:0] queue_ram_rd_data_ovrd_pipe_reg[PIPELINE-1:0], queue_ram_rd_data_ovrd_pipe_next[PIPELINE-1:0];
-reg [RAM_BE_W-1:0] queue_ram_rd_data_ovrd_en_pipe_reg[PIPELINE-1:0], queue_ram_rd_data_ovrd_en_pipe_next[PIPELINE-1:0];
+reg queue_ram_rd_data_ovrd_en_pipe_reg[PIPELINE-1:0], queue_ram_rd_data_ovrd_en_pipe_next[PIPELINE-1:0];
 
-reg [RAM_WIDTH-1:0] queue_ram_rd_data;
+wire [RAM_WIDTH-1:0] queue_ram_rd_data = queue_ram_rd_data_ovrd_en_pipe_reg[PIPELINE-1] ? queue_ram_rd_data_ovrd_pipe_reg[PIPELINE-1] : queue_ram_rd_data_pipe_reg[PIPELINE-1];
 
 // Scheduler RAM entry:
 // bit            len  field
@@ -245,20 +243,6 @@ wire queue_ram_rd_data_paused = queue_ram_rd_data[1];
 wire queue_ram_rd_data_active = queue_ram_rd_data[6];
 wire queue_ram_rd_data_scheduled = queue_ram_rd_data[7];
 wire [GEN_ID_W-1:0] queue_ram_rd_data_gen_id = queue_ram_rd_data[15:8];
-
-integer l;
-
-always @* begin
-    // apply read data override
-    for (l = 0; l < RAM_BE_W; l = l + 1) begin
-        // queue_ram_rd_data = queue_ram_rd_data_pipe_reg[PIPELINE-1];
-        if (queue_ram_rd_data_ovrd_en_pipe_reg[PIPELINE-1][l]) begin
-            queue_ram_rd_data[l*8 +: 8] = queue_ram_rd_data_ovrd_pipe_reg[PIPELINE-1][l*8 +: 8];
-        end else begin
-            queue_ram_rd_data[l*8 +: 8] = queue_ram_rd_data_pipe_reg[PIPELINE-1][l*8 +: 8];
-        end
-    end
-end
 
 reg [FINISH_FIFO_AW+1-1:0] finish_fifo_wr_ptr_reg = 0, finish_fifo_wr_ptr_next;
 reg [FINISH_FIFO_AW+1-1:0] finish_fifo_rd_ptr_reg = 0, finish_fifo_rd_ptr_next;
@@ -748,7 +732,6 @@ always @* begin
     queue_ram_wr_addr = queue_ram_addr_pipeline_reg[PIPELINE-1];
     queue_ram_wr_data = queue_ram_rd_data;
     queue_ram_wr_en = 0;
-    queue_ram_wr_strb = 0;
 
     finish_fifo_rd_ptr_next = finish_fifo_rd_ptr_reg;
     finish_fifo_wr_ptr_next = finish_fifo_wr_ptr_reg;
@@ -869,7 +852,6 @@ always @* begin
         queue_ram_wr_data[1] = 1'b0; // queue paused
         queue_ram_wr_data[6] = 1'b0; // queue active
         queue_ram_wr_data[7] = 1'b0; // queue scheduled
-        queue_ram_wr_strb[0] = 1'b1;
         queue_ram_wr_en = 1'b1;
     end else if (op_doorbell_pipe_reg[PIPELINE-1]) begin
         // handle doorbell
@@ -878,7 +860,6 @@ always @* begin
         queue_ram_wr_addr = queue_ram_addr_pipeline_reg[PIPELINE-1];
         queue_ram_wr_data[6] = 1'b1; // queue active
         queue_ram_wr_data[15:8] = queue_ram_rd_data_gen_id+1; // generation ID
-        queue_ram_wr_strb[1:0] = 2'b11;
         queue_ram_wr_en = 1'b1;
 
         // schedule queue if necessary
@@ -900,7 +881,6 @@ always @* begin
 
         // update state
         queue_ram_wr_addr = queue_ram_addr_pipeline_reg[PIPELINE-1];
-        queue_ram_wr_strb[0] = 1'b1;
         queue_ram_wr_en = 1'b1;
 
         if (queue_ram_rd_data_enabled && !queue_ram_rd_data_paused && queue_ram_rd_data_active && queue_ram_rd_data_scheduled) begin
@@ -933,7 +913,6 @@ always @* begin
 
         // update state
         queue_ram_wr_addr = queue_ram_addr_pipeline_reg[PIPELINE-1];
-        queue_ram_wr_strb[0] = 1'b1;
         queue_ram_wr_en = 1'b1;
 
         dec_active_op_1 = 1'b1;
@@ -948,7 +927,6 @@ always @* begin
         queue_ram_wr_en = 1'b1;
 
         queue_ram_wr_data[1] = !write_data_pipeline_reg[PIPELINE-1][0]; // queue pause
-        queue_ram_wr_strb[0] = 1'b1;
 
         // schedule if necessary
         if (queue_ram_rd_data_enabled && queue_ram_rd_data_active && !(!write_data_pipeline_reg[PIPELINE-1][0]) && !queue_ram_rd_data_scheduled) begin
@@ -985,13 +963,11 @@ always @* begin
             32'h400001zz: begin
                 // set queue enable
                 queue_ram_wr_data[0] = write_data_pipeline_reg[PIPELINE-1][0];
-                queue_ram_wr_strb[0] = 1'b1;
                 enabled = write_data_pipeline_reg[PIPELINE-1][0];
             end
             32'h400002zz: begin
                 // set queue pause
                 queue_ram_wr_data[1] = write_data_pipeline_reg[PIPELINE-1][0];
-                queue_ram_wr_strb[0] = 1'b1;
                 paused = write_data_pipeline_reg[PIPELINE-1][0];
             end
             default: begin
@@ -1026,13 +1002,11 @@ always @* begin
     end
 
     // handle read data override
-    for (j = 0; j < RAM_BE_W; j = j + 1) begin
-        if (queue_ram_wr_en && queue_ram_wr_strb[j]) begin
-            for (k = 0; k < PIPELINE; k = k + 1) begin
-                if (queue_ram_wr_addr == queue_ram_addr_pipeline_next[k]) begin
-                    queue_ram_rd_data_ovrd_pipe_next[k][j*8 +: 8] = queue_ram_wr_data[j*8 +: 8];
-                    queue_ram_rd_data_ovrd_en_pipe_next[k][j] = 1'b1;
-                end
+    if (queue_ram_wr_en) begin
+        for (k = 0; k < PIPELINE; k = k + 1) begin
+            if (queue_ram_wr_addr == queue_ram_addr_pipeline_next[k]) begin
+                queue_ram_rd_data_ovrd_pipe_next[k] = queue_ram_wr_data;
+                queue_ram_rd_data_ovrd_en_pipe_next[k] = 1'b1;
             end
         end
     end
@@ -1102,11 +1076,7 @@ always @(posedge clk) begin
     end
 
     if (queue_ram_wr_en) begin
-        for (i = 0; i < RAM_BE_W; i = i + 1) begin
-            if (queue_ram_wr_strb[i]) begin
-                queue_ram[queue_ram_wr_addr][i*8 +: 8] <= queue_ram_wr_data[i*8 +: 8];
-            end
-        end
+        queue_ram[queue_ram_wr_addr] <= queue_ram_wr_data;
     end
     queue_ram_rd_data_reg <= queue_ram[queue_ram_rd_addr];
     queue_ram_rd_data_pipe_reg[1] <= queue_ram_rd_data_reg;
