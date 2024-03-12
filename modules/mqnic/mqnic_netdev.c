@@ -29,6 +29,10 @@ int mqnic_start_port(struct net_device *ndev)
 
 	// allocate scheduler port
 	priv->sched_port = mqnic_interface_alloc_sched_port(iface);
+	if (!priv->sched_port) {
+		ret = -ENOMEM;
+		goto fail;
+	}
 
 	// set up RX queues
 	for (k = 0; k < priv->rxq_count; k++) {
