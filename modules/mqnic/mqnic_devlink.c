@@ -7,6 +7,7 @@
 
 #include <linux/version.h>
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
 static int mqnic_devlink_info_get(struct devlink *devlink,
 		struct devlink_info_req *req, struct netlink_ext_ack *extack)
 {
@@ -83,9 +84,12 @@ static int mqnic_devlink_info_get(struct devlink *devlink,
 
 	return 0;
 }
+#endif
 
 static const struct devlink_ops mqnic_devlink_ops = {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
 	.info_get = mqnic_devlink_info_get,
+#endif
 };
 
 struct devlink *mqnic_devlink_alloc(struct device *dev)
