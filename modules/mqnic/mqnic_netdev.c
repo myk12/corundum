@@ -496,7 +496,11 @@ static int mqnic_set_mac(struct net_device *ndev, void *addr)
 		return -EADDRNOTAVAIL;
 
 	netif_addr_lock_bh(ndev);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 	eth_hw_addr_set(ndev, saddr->sa_data);
+#else
+	memcpy(ndev->dev_addr, saddr->sa_data, ETH_ALEN);
+#endif
 	netif_addr_unlock_bh(ndev);
 
 	return 0;
