@@ -5,12 +5,16 @@
 
 #include "mqnic.h"
 
+#include <linux/version.h>
+
 struct mqnic_port *mqnic_create_port(struct mqnic_if *interface, int index,
 		int phys_index, struct mqnic_reg_block *port_rb)
 {
 	struct device *dev = interface->dev;
 	struct devlink *devlink = priv_to_devlink(interface->mdev);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
 	struct devlink_port_attrs attrs = {};
+#endif
 	struct mqnic_port *port;
 	struct mqnic_reg_block *rb;
 	u32 offset;
@@ -21,9 +25,19 @@ struct mqnic_port *mqnic_create_port(struct mqnic_if *interface, int index,
 	if (!port)
 		return ERR_PTR(-ENOMEM);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
 	attrs.flavour = DEVLINK_PORT_FLAVOUR_PHYSICAL;
 	attrs.phys.port_number = phys_index;
 	devlink_port_attrs_set(&port->dl_port, &attrs);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0)
+	devlink_port_attrs_set(&port->dl_port,
+			DEVLINK_PORT_FLAVOUR_PHYSICAL,
+			phys_index, 0, 0, NULL, 0);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0)
+	devlink_port_attrs_set(&port->dl_port,
+			DEVLINK_PORT_FLAVOUR_PHYSICAL,
+			phys_index, 0, 0);
+#endif
 
 	ret = devlink_port_register(devlink, &port->dl_port, phys_index);
 	if (ret) {
