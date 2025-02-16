@@ -9,17 +9,20 @@
 
 int mqnic_start_port(struct net_device *ndev)
 {
+	// start the network port
 	struct mqnic_priv *priv = netdev_priv(ndev);
 	struct mqnic_if *iface = priv->interface;
 	struct mqnic_ring *q;
-	struct mqnic_cq *cq;
-	struct mqnic_eq *eq;
+	struct mqnic_cq *cq; // completion queue
+	struct mqnic_eq *eq; // event queue
 	struct radix_tree_iter iter;
 	void **slot;
 	int k;
 	int ret;
 	u32 desc_block_size;
 
+	int if_idx = iface->index;
+	printk(KERN_INFO "[mqnic][myklog][%s] Starting port %d\n", __func__, if_idx);
 	netdev_info(ndev, "%s on interface %d", __func__, iface->index);
 
 	netif_set_real_num_tx_queues(ndev, priv->txq_count);
@@ -28,6 +31,7 @@ int mqnic_start_port(struct net_device *ndev)
 	desc_block_size = min_t(u32, priv->interface->max_desc_block_size, 4);
 
 	// allocate scheduler port
+	printk(KERN_INFO "[mqnic][myklog][%s] Allocating scheduler port\n", __func__);
 	priv->sched_port = mqnic_interface_alloc_sched_port(iface);
 	if (!priv->sched_port) {
 		ret = -ENOMEM;
@@ -35,6 +39,7 @@ int mqnic_start_port(struct net_device *ndev)
 	}
 
 	// set up RX queues
+	printk(KERN_INFO "[mqnic][myklog][%s] Setting up RX queues\n", __func__);
 	for (k = 0; k < priv->rxq_count; k++) {
 		// create CQ
 		cq = mqnic_create_cq(iface);
@@ -94,6 +99,7 @@ int mqnic_start_port(struct net_device *ndev)
 	}
 
 	// set up TX queues
+	printk(KERN_INFO "[mqnic][myklog][%s] Setting up TX queues\n", __func__);
 	for (k = 0; k < priv->txq_count; k++) {
 		// create CQ
 		cq = mqnic_create_cq(iface);
@@ -149,6 +155,7 @@ int mqnic_start_port(struct net_device *ndev)
 	}
 
 	// set MTU
+	printk(KERN_INFO "[mqnic][myklog][%s] Setting MTU\n", __func__);
 	mqnic_interface_set_tx_mtu(iface, ndev->mtu + ETH_HLEN);
 	mqnic_interface_set_rx_mtu(iface, ndev->mtu + ETH_HLEN);
 
@@ -177,6 +184,7 @@ int mqnic_start_port(struct net_device *ndev)
 	mqnic_port_set_tx_ctrl(priv->port, MQNIC_PORT_TX_CTRL_EN);
 
 	// configure scheduler
+	printk(KERN_INFO "[mqnic][myklog][%s] Configuring scheduler\n", __func__);
 	down_read(&priv->txq_table_sem);
 	radix_tree_for_each_slot(slot, &priv->txq_table, &iter, 0) {
 		struct mqnic_ring *q = (struct mqnic_ring *)*slot;
@@ -196,6 +204,7 @@ int mqnic_start_port(struct net_device *ndev)
 	mqnic_sched_port_channel_enable(priv->sched_port, 0);
 
 	// enable scheduler
+	printk(KERN_INFO "[mqnic][myklog][%s] Enabling scheduler\n", __func__);
 	mqnic_sched_port_enable(priv->sched_port);
 
 	netif_tx_start_all_queues(ndev);
@@ -211,8 +220,8 @@ int mqnic_start_port(struct net_device *ndev)
 
 	mqnic_port_set_rx_ctrl(priv->port, MQNIC_PORT_RX_CTRL_EN);
 
+	printk(KERN_INFO "[mqnic][myklog][%s] Port %d started\n", __func__, if_idx);
 	return 0;
-
 fail:
 	mqnic_stop_port(ndev);
 	return ret;
@@ -323,6 +332,10 @@ static int mqnic_open(struct net_device *ndev)
 	struct mqnic_priv *priv = netdev_priv(ndev);
 	struct mqnic_dev *mdev = priv->mdev;
 	int ret = 0;
+
+	// get interface index
+	int if_idx = priv->interface->index;
+	printk(KERN_INFO "[mqnic][myklog][mqnic_open] open interface[%d]\n", if_idx);
 
 	mutex_lock(&mdev->state_lock);
 
@@ -579,6 +592,10 @@ static void mqnic_link_status_timeout(struct timer_list *timer)
 		up = 0;
 	if (!(mqnic_port_get_rx_ctrl(priv->port) & MQNIC_PORT_RX_CTRL_STATUS))
 		up = 0;
+	
+	// always set link up for now
+	// just for testing
+	up = 1;
 
 	if (up) {
 		if (!priv->link_status) {
@@ -605,6 +622,9 @@ struct net_device *mqnic_create_netdev(struct mqnic_if *interface, struct mqnic_
 	int k;
 	u32 desc_block_size;
 
+	// myk_note: allocate memory for network device and set up 
+	// multiple queues for TX and RX, the queue count is determined
+	// by the FPGA configuration
 	ndev = alloc_etherdev_mqs(sizeof(*priv), mqnic_res_get_count(interface->txq_res),
 			mqnic_res_get_count(interface->rxq_res));
 	if (!ndev) {

@@ -408,6 +408,10 @@ netdev_tx_t mqnic_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	bool stop_queue;
 	u32 cons_ptr;
 
+	// get interface index and print log info
+	int interface_index = priv->interface->index;
+	printk(KERN_INFO "[myklog][mqnic_start_xmit]: interface[%d]\n", interface_index);
+
 	if (unlikely(!priv->port_up))
 		goto tx_drop;
 
@@ -479,6 +483,7 @@ netdev_tx_t mqnic_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	if (!mqnic_map_skb(ring, tx_info, tx_desc, skb))
 		// map failed
 		goto tx_drop_count;
+	printk(KERN_INFO "[myklog][mqnic_start_xmit]: skb mapped\n");
 
 	// count packet
 	ring->packets++;
@@ -508,6 +513,8 @@ netdev_tx_t mqnic_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		dma_wmb();
 		mqnic_tx_write_prod_ptr(ring);
 	}
+
+	printk(KERN_INFO "[myklog][mqnic_start_xmit]: packet enqueued on NIC.\n");
 
 	// check if queue restarted
 	if (unlikely(stop_queue)) {

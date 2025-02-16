@@ -41,6 +41,21 @@
 // default interval to poll port TX/RX status, in ms
 #define MQNIC_LINK_STATUS_POLL_MS 1000
 
+// test work
+struct mqnic_bulk_send_work {
+    // 其他已有的驱动私有数据
+	struct net_device *ndev;
+	struct mqnic_if *interface;
+    struct workqueue_struct *packet_workqueue;
+    struct delayed_work packet_work;
+};
+
+// mqnic_bulk_send.c
+void mqnic_packet_work(struct work_struct *work);
+int mqnic_bulk_send_open(struct net_device *ndev);
+int mqnic_bulk_send_close(struct net_device *ndev);
+void mqnic_send_packet(struct mqnic_bulk_send_work *priv);
+
 extern unsigned int mqnic_num_eq_entries;
 extern unsigned int mqnic_num_txq_entries;
 extern unsigned int mqnic_num_rxq_entries;
@@ -699,5 +714,6 @@ int mqnic_poll_rx_cq(struct napi_struct *napi, int budget);
 
 // mqnic_ethtool.c
 extern const struct ethtool_ops mqnic_ethtool_ops;
+
 
 #endif /* MQNIC_H */

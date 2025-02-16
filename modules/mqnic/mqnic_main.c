@@ -398,6 +398,34 @@ static int mqnic_common_probe(struct mqnic_dev *mqnic)
 			priv->mod_i2c_client = mqnic->mod_i2c_client[k];
 	}
 
+#if 0
+	// enable send packet work
+	for (k = 0; k < mqnic->if_count; k++) {
+		printk("mqnic_common_probe: enable send packet work[%d]\n", k);
+		struct mqnic_bulk_send_work *send_work;
+		struct mqnic_if *interface = mqnic->interface[k];
+
+		send_work = kzalloc(sizeof(*send_work), GFP_KERNEL);
+		if (!send_work) {
+			ret = -ENOMEM;
+			goto fail_create_if;
+		}
+
+		send_work->interface = interface;
+		//send_work->ndev = interface->dev;
+
+		send_work->packet_workqueue = create_singlethread_workqueue("mqnic_packet_work");
+		if (!send_work->packet_workqueue) {
+			dev_err(dev, "Failed to create packet workqueue");
+			ret = -ENOMEM;
+			goto fail_create_if;
+		}
+
+		INIT_DELAYED_WORK(&send_work->packet_work, mqnic_packet_work);
+		queue_delayed_work(send_work->packet_workqueue, &send_work->packet_work, msecs_to_jiffies(1000));
+	}
+#endif
+
 fail_create_if:
 	mqnic->misc_dev.minor = MISC_DYNAMIC_MINOR;
 	mqnic->misc_dev.name = mqnic->name;
@@ -650,6 +678,16 @@ static int mqnic_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent
 	if (ioread32(mqnic->hw_addr+4) == 0xffffffff) {
 		ret = -EIO;
 		dev_err(dev, "Device needs to be reset");
+
+		// show the read value
+		dev_err(dev, "Read value: 0x%08x", ioread32(mqnic->hw_addr+4));
+		// show more values
+		dev_err(dev, "Read value: 0x%08x", ioread32(mqnic->hw_addr+0));
+		dev_err(dev, "Read value: 0x%08x", ioread32(mqnic->hw_addr+8));
+		dev_err(dev, "Read value: 0x%08x", ioread32(mqnic->hw_addr+12));
+		dev_err(dev, "Read value: 0x%08x", ioread32(mqnic->hw_addr+16));
+		dev_err(dev, "Read value: 0x%08x", ioread32(mqnic->hw_addr+20));
+		dev_err(dev, "Read value: 0x%08x", ioread32(mqnic->hw_addr+24));
 		goto fail_reset;
 	}
 
@@ -769,6 +807,7 @@ static int mqnic_platform_probe(struct platform_device *pdev)
 	if (IS_ERR(rst)) {
 		dev_warn(dev, "Cannot control device reset");
 	} else {
+		printk(KERN_CONT "Resetting device\n");
 		dev_info(dev, "Resetting device");
 		reset_control_assert(rst);
 		udelay(2);
@@ -776,11 +815,13 @@ static int mqnic_platform_probe(struct platform_device *pdev)
 	}
 
 	// Reserve and map regions
+	printk(KERN_CONT "Reserving and mapping regions\n");
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	mqnic->hw_regs_size = resource_size(res);
 	mqnic->hw_regs_phys = res->start;
 
 	dev_info(dev, "Control BAR size: %llu", mqnic->hw_regs_size);
+	printk(KERN_CONT "Control BAR size: %llu\n", mqnic->hw_regs_size);
 	mqnic->hw_addr = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(mqnic->hw_addr)) {
 		ret = PTR_ERR(mqnic->hw_addr);
@@ -870,7 +911,7 @@ static struct platform_driver mqnic_platform_driver = {
 static int __init mqnic_init(void)
 {
 	int rc;
-
+	printk(KERN_CONT "mqnic_init\n");
 #ifdef CONFIG_PCI
 	rc = pci_register_driver(&mqnic_pci_driver);
 	if (rc)
@@ -880,6 +921,8 @@ static int __init mqnic_init(void)
 	rc = platform_driver_register(&mqnic_platform_driver);
 	if (rc)
 		goto err;
+	
+	printk(KERN_CONT "mqnic_init done\n");
 
 	return 0;
 
