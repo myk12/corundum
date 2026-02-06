@@ -10,7 +10,26 @@ module consensus_tx #(
 
     parameter integer   P_LOG_ITEM_LEN = 40, // bytes
     parameter [47:0]    P_SRC_MAC = 48'h02_00_00_00_00_00,
-    parameter [15:0]    P_ETHERNET_TYPE = 16'h88B5
+    parameter [15:0]    P_ETHERNET_TYPE = 16'h88B5,
+
+    // Protocol field widths
+    parameter integer   P_NODE_ID_WIDTH = 8,
+    parameter integer   P_KV_WIDTH      = 8,
+
+    // Header byte offsets (from start of Ethernet frame)
+    parameter integer   P_HDR_ETHERTYPE_OFFSET = 12,
+    parameter integer   P_HDR_SLOT_ID_OFFSET   = 14,
+    parameter integer   P_HDR_NODE_ID_OFFSET   = 22,
+    parameter integer   P_HDR_KV_OFFSET        = 23,
+    parameter integer   P_HDR_PAYLOAD_OFFSET   = 24,
+
+    // Destination MAC table (for up to 5 nodes)
+    parameter [47:0]    P_DEST_MAC_0 = 48'h00_0a_35_06_50_94,
+    parameter [47:0]    P_DEST_MAC_1 = 48'h00_0a_35_06_09_24,
+    parameter [47:0]    P_DEST_MAC_2 = 48'h00_0a_35_06_0b_84,
+    parameter [47:0]    P_DEST_MAC_3 = 48'h00_0a_35_06_09_3c,
+    parameter [47:0]    P_DEST_MAC_4 = 48'h00_0a_35_06_0b_72,
+    parameter [47:0]    P_BROADCAST_MAC = 48'hFF_FF_FF_FF_FF_FF
 ) (
     // clock and reset
     input wire                              clk,
@@ -33,6 +52,16 @@ module consensus_tx #(
     output reg [P_AXIS_USER_WIDTH-1:0]      m_axis_mac_tx_tuser,
     input wire                              m_axis_mac_tx_tready
 );
+
+// Parameter checks (simulation-time)
+initial begin
+    if (P_NODE_COUNT > 5) begin
+        $error("consensus_tx: P_NODE_COUNT > 5 requires extended MAC mapping");
+    end
+    if ((P_LOG_ITEM_LEN % 8) != 0) begin
+        $error("consensus_tx: P_LOG_ITEM_LEN must be a multiple of 8 bytes for 64-bit endian swap");
+    end
+end
 
 //------------------------------------------------
 //         Endianess Conversion
@@ -61,16 +90,16 @@ reg [47:0]  v_dest_mac;
 
 always @(*) begin
     // Default value
-    v_dest_mac = 48'hFF_FF_FF_FF_FF_FF; // Broadcast MAC
+    v_dest_mac = P_BROADCAST_MAC; // Broadcast MAC
 
     // Select destination MAC based on destination node ID
     case (r_target_node_id)
-        0: v_dest_mac = 48'h00_0a_35_06_50_94;
-        1: v_dest_mac = 48'h00_0a_35_06_09_24;
-        2: v_dest_mac = 48'h00_0a_35_06_0b_84;
-        3: v_dest_mac = 48'h00_0a_35_06_09_3c;
-        4: v_dest_mac = 48'h00_0a_35_06_0b_72;
-        default: v_dest_mac = 48'hFF_FF_FF_FF_FF_FF; // Broadcast MAC
+        0: v_dest_mac = P_DEST_MAC_0;
+        1: v_dest_mac = P_DEST_MAC_1;
+        2: v_dest_mac = P_DEST_MAC_2;
+        3: v_dest_mac = P_DEST_MAC_3;
+        4: v_dest_mac = P_DEST_MAC_4;
+        default: v_dest_mac = P_BROADCAST_MAC; // Broadcast MAC
     endcase
 end
 
@@ -108,15 +137,15 @@ always @(*) begin
     v_packet_flit[10*8 +: 8]      = P_SRC_MAC[15:8];
     v_packet_flit[11*8 +: 8]      = P_SRC_MAC[7:0];
 
-    v_packet_flit[12*8 +: 16] = to_big_endian_16(P_ETHERNET_TYPE);
+    v_packet_flit[P_HDR_ETHERTYPE_OFFSET*8 +: 16] = to_big_endian_16(P_ETHERNET_TYPE);
 
     // ------- Consensus Header -------
-    v_packet_flit[14*8 +: 64]  = to_big_endian_64(i_timing_current_slot_id);
-    v_packet_flit[22*8 +: 8]   = P_NODE_ID[7:0];
-    v_packet_flit[23*8 +: 8]   = i_core_knowledge_vec;
+    v_packet_flit[P_HDR_SLOT_ID_OFFSET*8 +: 64]  = to_big_endian_64(i_timing_current_slot_id);
+    v_packet_flit[P_HDR_NODE_ID_OFFSET*8 +: P_NODE_ID_WIDTH] = P_NODE_ID[P_NODE_ID_WIDTH-1:0];
+    v_packet_flit[P_HDR_KV_OFFSET*8 +: P_KV_WIDTH]   = i_core_knowledge_vec;
 
     // ------- Payload -------
-    v_packet_flit[24*8 +: P_LOG_ITEM_LEN*8] = i_core_propose;
+    v_packet_flit[P_HDR_PAYLOAD_OFFSET*8 +: P_LOG_ITEM_LEN*8] = i_core_propose;
 end
 
 //------------------------------------------------

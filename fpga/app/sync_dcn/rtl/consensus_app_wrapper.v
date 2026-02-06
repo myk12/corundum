@@ -16,23 +16,45 @@
  */
 
 module consensus_app_wrapper #(
-    parameter P_NODE_ID = 0,
-    parameter PTP_TS_WIDTH = 96,
+    parameter               P_NODE_ID       = 0,
+    parameter               PTP_TS_WIDTH    = 96,
 
     // Interface Configuration
-    parameter AXIS_DATA_WIDTH = 512,
-    parameter AXIS_KEEP_WIDTH = AXIS_DATA_WIDTH/8,
-    parameter AXIS_TX_USER_WIDTH = 1,
-    parameter AXIS_RX_USER_WIDTH = 1,
-    parameter AXIS_USER_WIDTH = AXIS_TX_USER_WIDTH, // For consensus core
-    parameter TX_TAG_WIDTH = 16
+    parameter               AXIS_DATA_WIDTH     = 512,
+    parameter               AXIS_KEEP_WIDTH     = AXIS_DATA_WIDTH/8,
+    parameter               AXIS_TX_USER_WIDTH  = 1,
+    parameter               AXIS_RX_USER_WIDTH  = 1,
+    parameter               AXIS_USER_WIDTH     = AXIS_TX_USER_WIDTH, // For consensus core
+    parameter               TX_TAG_WIDTH        = 16,
+
+    // Consensus routing parameters
+    parameter [15:0]        P_CONSENSUS_ETHERTYPE           = 16'h88B5,
+    parameter integer       P_HDR_ETHERTYPE_OFFSET_BYTES    = 12,
+    // Consensus configuration parameters (propagated to node)
+    parameter integer       P_SLOT_DURATION_NS              = 10000,
+    parameter integer       P_GUARD_BAND_NS                 = 1000,
+    parameter integer       P_COMMIT_TIME_NS               = 1000,
+    parameter integer       P_LOG_ITEM_LEN                 = 40,
+    parameter [47:0]        P_NODE_MAC_ADDR                = 48'h00_0a_35_06_50_94,
+    parameter integer       P_NODE_ID_WIDTH                = 8,
+    parameter integer       P_KV_WIDTH                     = 8,
+    parameter integer       P_HDR_SLOT_ID_OFFSET           = 14,
+    parameter integer       P_HDR_NODE_ID_OFFSET           = 22,
+    parameter integer       P_HDR_KV_OFFSET                = 23,
+    parameter integer       P_HDR_PAYLOAD_OFFSET           = 24,
+    parameter [47:0]        P_DEST_MAC_0                   = 48'h00_0a_35_06_50_94,
+    parameter [47:0]        P_DEST_MAC_1                   = 48'h00_0a_35_06_09_24,
+    parameter [47:0]        P_DEST_MAC_2                   = 48'h00_0a_35_06_0b_84,
+    parameter [47:0]        P_DEST_MAC_3                   = 48'h00_0a_35_06_09_3c,
+    parameter [47:0]        P_DEST_MAC_4                   = 48'h00_0a_35_06_0b_72,
+    parameter [47:0]        P_BROADCAST_MAC                = 48'hFF_FF_FF_FF_FF_FF
 )(
+    // --------------------------------------------------------
+    // 0. Global Signals
+    // --------------------------------------------------------
     input  wire                                 clk,
     input  wire                                 rst,
 
-    // --------------------------------------------------------
-    // 0. Control
-    // --------------------------------------------------------
     input  wire                                 i_enable,
 
     // --------------------------------------------------------
@@ -119,31 +141,45 @@ module consensus_app_wrapper #(
     wire [AXIS_KEEP_WIDTH-1:0]                  s_axis_host_req_keep        = {AXIS_KEEP_WIDTH{1'b0}};
     wire                                        s_axis_host_req_valid       = 1'b0;
     wire                                        s_axis_host_req_last        = 1'b0;
-    wire                                        s_axis_host_req_ready       = 1'b0;
+    wire                                        s_axis_host_req_ready;
 
     wire [AXIS_DATA_WIDTH-1:0]                  m_axis_host_commit_data     = {AXIS_DATA_WIDTH{1'b0}};
     wire [AXIS_KEEP_WIDTH-1:0]                  m_axis_host_commit_keep     = {AXIS_KEEP_WIDTH{1'b0}};
     wire                                        m_axis_host_commit_valid    = 1'b0;
     wire                                        m_axis_host_commit_last     = 1'b0;
-    wire                                        m_axis_host_commit_ready    = 1'b1;
+    wire                                        m_axis_host_commit_ready;
 
     consensus_node #(
         // cluster configuration
         .P_NODE_ID(P_NODE_ID),
         .P_NODE_COUNT(3),
 
-        .P_SLOT_DURATION_NS(10000), // 10 us slot duration (for timestamp formatting)
-        .P_GUARD_BAND_NS(1000), // 1 us guard duration 
-        .P_COMMIT_TIME_NS(1000),    // 1 us commit time 
+        .P_SLOT_DURATION_NS(P_SLOT_DURATION_NS),
+        .P_GUARD_BAND_NS(P_GUARD_BAND_NS),
+        .P_COMMIT_TIME_NS(P_COMMIT_TIME_NS),
 
-        .P_ETHERNET_TYPE(16'h88B5),
-        .P_NODE_MAC_ADDR(48'h00_0a_35_06_50_94), // default MAC (not used in this wrapper since we hardcode dest MAC in consensus_tx)
-        .P_LOG_ITEM_LEN(40), // 40 bytes log item (payload) length
+        .P_ETHERNET_TYPE(P_CONSENSUS_ETHERTYPE),
+        .P_NODE_MAC_ADDR(P_NODE_MAC_ADDR),
+        .P_LOG_ITEM_LEN(P_LOG_ITEM_LEN),
 
         .P_AXIS_DATA_WIDTH(AXIS_DATA_WIDTH),
         .P_AXIS_KEEP_WIDTH(AXIS_KEEP_WIDTH),
         .P_AXIS_TX_USER_WIDTH(AXIS_TX_USER_WIDTH),
-        .P_AXIS_RX_USER_WIDTH(AXIS_RX_USER_WIDTH)
+        .P_AXIS_RX_USER_WIDTH(AXIS_RX_USER_WIDTH),
+
+        .P_NODE_ID_WIDTH(P_NODE_ID_WIDTH),
+        .P_KV_WIDTH(P_KV_WIDTH),
+        .P_HDR_ETHERTYPE_OFFSET(P_HDR_ETHERTYPE_OFFSET_BYTES),
+        .P_HDR_SLOT_ID_OFFSET(P_HDR_SLOT_ID_OFFSET),
+        .P_HDR_NODE_ID_OFFSET(P_HDR_NODE_ID_OFFSET),
+        .P_HDR_KV_OFFSET(P_HDR_KV_OFFSET),
+        .P_HDR_PAYLOAD_OFFSET(P_HDR_PAYLOAD_OFFSET),
+        .P_DEST_MAC_0(P_DEST_MAC_0),
+        .P_DEST_MAC_1(P_DEST_MAC_1),
+        .P_DEST_MAC_2(P_DEST_MAC_2),
+        .P_DEST_MAC_3(P_DEST_MAC_3),
+        .P_DEST_MAC_4(P_DEST_MAC_4),
+        .P_BROADCAST_MAC(P_BROADCAST_MAC)
     ) consensus_node_inst (
         .clk(clk),
         .rst_n(!rst),
@@ -295,20 +331,15 @@ module consensus_app_wrapper #(
     // =========================================================================
     // Part D: RX path routing (frame-aware)
     // =========================================================================
-    // RX packets are routed based on EtherType (0x88B5) latched on the first beat handshake. 
-    // If i_enable=0, all packets bypass to host DMA.
-    // The logic is as follows:
-    // - On the first beat of a frame (tvalid && tready), we check the EtherType field (bytes 12-13) 
-    //   of the Ethernet header. If it matches 0x88B5, we route the entire frame to the consensus core; 
-    //   otherwise, we route to host DMA.
-    // - We use a register to lock the route decision for the duration of the frame, so that we don't
-    //   interleave beats from different sources. The route is only re-evaluated at the start of a new frame.
-    // 
-    // EtherType match based on bytes [12:13] of Ethernet header (big endian)
+    // RX packets are routed based on EtherType (0x88B5) latched on the first beat handshake.
+    // If the first beat of a frame matches the EtherType, the entire frame is routed to the 
+    // consensus core; otherwise, it's routed to the host DMA. This ensures that frames are 
+    // not interleaved and that routing decisions are consistent for each frame.
+    
+    // EtherType match based on configured header offset (big endian)
     // NOTE: assumes the MAC stream starts at Ethernet destination MAC.
     wire ethertype_match = s_axis_mac_rx_tvalid &&
-                       (s_axis_mac_rx_tdata[12*8 +: 8] === 8'h88) &&
-                       (s_axis_mac_rx_tdata[13*8 +: 8] === 8'hB5);
+                       (s_axis_mac_rx_tdata[P_HDR_ETHERTYPE_OFFSET_BYTES*8 +: 16] === {P_CONSENSUS_ETHERTYPE[7:0], P_CONSENSUS_ETHERTYPE[15:8]});
 
     reg  rx_active_reg;
     reg  rx_route_core_reg;
@@ -317,7 +348,7 @@ module consensus_app_wrapper #(
     wire rx_fire = s_axis_mac_rx_tvalid && s_axis_mac_rx_tready;
 
     always @(posedge clk) begin
-        if (rst || !i_enable) begin
+        if (rst) begin
             rx_active_reg     <= 1'b0;
             rx_route_core_reg <= 1'b0;
         end else begin
@@ -359,21 +390,17 @@ module consensus_app_wrapper #(
         s_axis_mac_rx_tready = 1'b0;
 
         if (route_to_core_eff) begin
-            if (i_enable) begin
-                // Route to consensus core
-                s_axis_mac_rx_tready = m_axis_core_rx_tready;
+            // Route to consensus core
+            s_axis_mac_rx_tready = m_axis_core_rx_tready;
 
-                if (s_axis_mac_rx_tvalid) begin
-                    m_axis_core_rx_tdata  = s_axis_mac_rx_tdata;
-                    m_axis_core_rx_tkeep  = s_axis_mac_rx_tkeep;
-                    m_axis_core_rx_tvalid = s_axis_mac_rx_tvalid;
-                    m_axis_core_rx_tlast  = s_axis_mac_rx_tlast;
-                    m_axis_core_rx_tuser  = s_axis_mac_rx_tuser;
-                end
-            end else begin
-                // sink/drop if core is disabled
-                s_axis_mac_rx_tready = 1'b1; // Still ready to accept frames
+            if (s_axis_mac_rx_tvalid) begin
+                m_axis_core_rx_tdata  = s_axis_mac_rx_tdata;
+                m_axis_core_rx_tkeep  = s_axis_mac_rx_tkeep;
+                m_axis_core_rx_tvalid = s_axis_mac_rx_tvalid;
+                m_axis_core_rx_tlast  = s_axis_mac_rx_tlast;
+                m_axis_core_rx_tuser  = s_axis_mac_rx_tuser;
             end
+
         end else begin
             // Route all other traffic to host (DMA)
             s_axis_mac_rx_tready = m_axis_dma_rx_tready;

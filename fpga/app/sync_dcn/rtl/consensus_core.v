@@ -13,8 +13,10 @@
 module consensus_core #(
     parameter P_NODE_COUNT = 3,
     parameter P_NODE_ID = 0,
-    parameter P_HEALTH_QUORUM = (P_NODE_COUNT / 2 + 1),
-    parameter P_LOG_ITEM_LEN = 16 // in bytes
+    parameter P_CONSENSUS_QUORUM = (P_NODE_COUNT / 2 + 1),
+    parameter P_LOG_ITEM_LEN = 16, // in bytes
+    parameter P_NODE_ID_WIDTH = 8,
+    parameter P_KV_WIDTH = 8
 ) (
     // clock and reset
     input wire                                  clk,
@@ -28,8 +30,8 @@ module consensus_core #(
 
     // data interface
     input wire                                  i_rx_valid,
-    input wire [7:0]                            i_rx_node_id,
-    input wire [7:0]                            i_rx_knowledge_vec,
+    input wire [P_NODE_ID_WIDTH-1:0]            i_rx_node_id,
+    input wire [P_KV_WIDTH-1:0]                 i_rx_knowledge_vec,
     input wire [P_LOG_ITEM_LEN*8-1:0]           i_rx_propose,
 
     // status outputs
@@ -66,11 +68,11 @@ reg [P_NODE_COUNT-1:0]          r_last_rx_mask;     // This is my own knowledge 
 // logs in this slot
 reg [P_LOG_ITEM_LEN*8-1:0]      r_propose_log [0:P_NODE_COUNT-1];       // proposed logs
 reg [P_LOG_ITEM_LEN*8-1:0]      r_commit_log [0:P_NODE_COUNT-1];        // acknowledged logs
-reg [P_NODE_COUNT-1:0]         r_consensus_reached;                    // consensus reached for each node
-reg [7:0]                      r_rx_number;                            // number of received packets
+wire [P_NODE_COUNT-1:0]        r_consensus_reached;                    // consensus reached for each node
+wire [7:0]                     r_rx_number;                            // number of received packets
 
-reg [2:0]                      r_column_sum [0:P_NODE_COUNT-1];        // column sum of knowledge matrix
-reg [P_NODE_COUNT-1:0]         r_others_saw_me;                     // other nodes saw me the same way
+reg [$clog2(P_NODE_COUNT+1)-1:0]  r_column_sum [0:P_NODE_COUNT-1];        // column sum of knowledge matrix
+wire [P_NODE_COUNT-1:0]        r_others_saw_me;                     // other nodes saw me the same way
 
 reg                            r_am_i_blind;                           // self blind detection
 reg                            r_am_i_mute;                          // self mute detection
@@ -89,7 +91,7 @@ integer i, j, k;
 // 3.1 calculate received packets count
 assign r_rx_number = count_ones(r_rx_mask);
 
-function [7:0] count_ones;
+function [$clog2(P_NODE_COUNT+1)-1:0] count_ones;
     input [P_NODE_COUNT-1:0] vec;
     integer idx;
     begin
@@ -115,27 +117,25 @@ end
 genvar g;
 generate
     for (g = 0; g < P_NODE_COUNT; g = g + 1) begin : cons_check
-        assign r_consensus_reached[g] = (r_column_sum[g] >= (P_NODE_COUNT / 2 + 1)) ? 1'b1 : 1'b0;
+        assign r_consensus_reached[g] = (r_column_sum[g] >= P_CONSENSUS_QUORUM) ? 1'b1 : 1'b0;
     end
 endgenerate
 
 // 3.3 self diagnosis: blind and mute detection
 // "Blind": if I see no other alive nodes
-assign r_am_i_blind = (r_alive_mask & r_rx_mask) & ~(1 << P_NODE_ID) == 0;
+assign r_am_i_blind = ((r_alive_mask & r_rx_mask & ~(1 << P_NODE_ID)) == 0);
 
-always @(*) begin
-    r_others_saw_me = {P_NODE_COUNT{1'b0}};
-    for (j = 0; j < P_NODE_COUNT; j = j + 1) begin
-        if (r_alive_mask[j] && r_knowledge_matrix[j][P_NODE_ID]) begin
-            r_others_saw_me[j] = 1'b1;
-        end
+genvar os;
+generate
+    for (os = 0; os < P_NODE_COUNT; os = os + 1) begin : others_saw_me_gen
+        assign r_others_saw_me[os] = r_alive_mask[os] && r_knowledge_matrix[os][P_NODE_ID];
     end
-end
+endgenerate
 
 // "Mute": if no other alive nodes saw me as alive
-assign r_am_i_mute = (r_others_saw_me & r_alive_mask & ~(1 << P_NODE_ID)) == 0;
+assign r_am_i_mute = ((r_others_saw_me & r_alive_mask & ~(1 << P_NODE_ID)) == 0);
 
-assign r_halt_condition_met = (r_rx_number < P_HEALTH_QUORUM) || r_am_i_blind || r_am_i_mute;
+assign r_halt_condition_met = (r_rx_number < P_CONSENSUS_QUORUM) || r_am_i_blind || r_am_i_mute;
 
 // ------------------------------------------------
 //  FSM PART 1: state register update (sequential)
@@ -196,7 +196,6 @@ always @(posedge clk) begin
             r_knowledge_matrix[i] <= {P_NODE_COUNT{1'b0}};
             r_propose_log[i] <= 0;
             r_commit_log[i] <= 0;
-            r_others_saw_me[i] <= 1'b0;
             r_rx_mask[i] <= 1'b0;
             r_last_rx_mask[i] <= 1'b0;
 

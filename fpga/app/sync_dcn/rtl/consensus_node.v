@@ -14,18 +14,36 @@ module consensus_node #(
     parameter integer   P_ETHERNET_TYPE         = 16'h88B5,
     parameter [47:0]    P_NODE_MAC_ADDR         = 48'h00_0a_35_06_50_94,
     parameter integer   P_LOG_ITEM_LEN          = 40,      // 40 bytes default
+    parameter integer   P_NODE_ID_WIDTH         = 8,
+    parameter integer   P_KV_WIDTH              = 8,
     parameter integer   P_AXIS_DATA_WIDTH       = 512,
     parameter integer   P_AXIS_KEEP_WIDTH       = P_AXIS_DATA_WIDTH/8,
     parameter integer   P_AXIS_TX_USER_WIDTH     = 1,
-    parameter integer   P_AXIS_RX_USER_WIDTH     = 1
+    parameter integer   P_AXIS_RX_USER_WIDTH     = 1,
+    parameter integer   P_AXIS_USER_WIDTH        = P_AXIS_TX_USER_WIDTH, // For consensus core
+    parameter integer   P_TX_TAG_WIDTH          = 16,
+    
+    // Header byte offsets (from start of Ethernet frame)
+    parameter integer   P_HDR_ETHERTYPE_OFFSET  = 12,
+    parameter integer   P_HDR_SLOT_ID_OFFSET    = 14,
+    parameter integer   P_HDR_NODE_ID_OFFSET    = 22,
+    parameter integer   P_HDR_KV_OFFSET         = 23,
+    parameter integer   P_HDR_PAYLOAD_OFFSET    = 24,
+    // Destination MAC table (for up to 5 nodes) and broadcast MAC
+    parameter [47:0]    P_DEST_MAC_0 = 48'h00_0a_35_06_50_94,
+    parameter [47:0]    P_DEST_MAC_1 = 48'h00_0a_35_06_09_24,
+    parameter [47:0]    P_DEST_MAC_2 = 48'h00_0a_35_06_0b_84,
+    parameter [47:0]    P_DEST_MAC_3 = 48'h00_0a_35_06_09_3c,
+    parameter [47:0]    P_DEST_MAC_4 = 48'h00_0a_35_06_0b_72,
+    parameter [47:0]    P_BROADCAST_MAC = 48'hFF_FF_FF_FF_FF_FF
 ) (
     // clock and reset
-    input wire                                      clk,
-    input wire                                      rst_n,
+    input wire                                          clk,
+    input wire                                          rst_n,
 
     // control and time source
-    input wire                                      i_enable,           // enable the consensus module
-    input wire [63:0]                               i_ptp_time_ns,      // PTP time in nanoseconds  
+    input wire                                          i_enable,           // enable the consensus module
+    input wire [63:0]                                   i_ptp_time_ns,      // PTP time in nanoseconds  
     //----------------------------------------------------------------
     //      Network Interface (Consensus Traffic)
     //----------------------------------------------------------------
@@ -53,7 +71,7 @@ module consensus_node #(
     input wire [P_AXIS_KEEP_WIDTH-1:0]                  s_axis_host_req_keep,
     input wire                                          s_axis_host_req_valid,
     input wire                                          s_axis_host_req_last,
-    output wire                                         s_axis_host_req_ready,
+    output reg                                          s_axis_host_req_ready,
 
     // Commit log Output
     output wire [P_AXIS_DATA_WIDTH-1:0]                 m_axis_host_commit_data,
@@ -66,7 +84,14 @@ module consensus_node #(
 );
 
 // Currently we do not support host requests
-assign m_axis_host_req_ready = 1'b0;
+assign s_axis_host_req_ready = 1'b0;
+
+// Tie off host commit outputs and debug state for now
+assign m_axis_host_commit_data  = {P_AXIS_DATA_WIDTH{1'b0}};
+assign m_axis_host_commit_keep  = {P_AXIS_KEEP_WIDTH{1'b0}};
+assign m_axis_host_commit_valid = 1'b0;
+assign m_axis_host_commit_last  = 1'b0;
+assign o_debug_state            = 4'b0000;
 
 //------------------------------------------------
 //   1. Interface Interconnections
@@ -82,9 +107,9 @@ wire            w_rx_enabled;
 
 // RX -> Core
 wire            w_rx_valid;
-wire [7:0]      w_rx_node_id;
-wire [7:0]      w_rx_knowledge_vec;
-wire [319:0]    w_rx_payload;
+wire [P_NODE_ID_WIDTH-1:0]      w_rx_node_id;
+wire [P_KV_WIDTH-1:0]           w_rx_knowledge_vec;
+wire [P_LOG_ITEM_LEN*8-1:0]     w_rx_payload;
 
 // Core -> TX
 wire [P_NODE_COUNT-1:0]        w_tx_knowledge_vec;
@@ -128,7 +153,9 @@ consensus_scheduler #(
 consensus_core #(
     .P_NODE_ID(P_NODE_ID),
     .P_NODE_COUNT(P_NODE_COUNT),
-    .P_LOG_ITEM_LEN(P_LOG_ITEM_LEN)
+    .P_LOG_ITEM_LEN(P_LOG_ITEM_LEN),
+    .P_NODE_ID_WIDTH(P_NODE_ID_WIDTH),
+    .P_KV_WIDTH(P_KV_WIDTH)
 ) consensus_core_inst (
     .clk(clk),
     .rst_n(rst_n),
@@ -138,8 +165,8 @@ consensus_core #(
     .i_slot_end_pulse(w_slot_end_pulse),
 
     .i_rx_valid(w_rx_valid),
-    .i_rx_node_id(w_rx_node_id),
-    .i_rx_knowledge_vec(w_rx_knowledge_vec),
+    .i_rx_node_id(w_rx_node_id[P_NODE_ID_WIDTH-1:0]),
+    .i_rx_knowledge_vec(w_rx_knowledge_vec[P_KV_WIDTH-1:0]),
     .i_rx_propose(w_rx_payload[P_LOG_ITEM_LEN*8-1:0]),
 
     .o_system_halt(o_system_halt),
@@ -162,7 +189,20 @@ consensus_tx #(
 
     .P_ETHERNET_TYPE(P_ETHERNET_TYPE),
     .P_LOG_ITEM_LEN(P_LOG_ITEM_LEN),
-    .P_SRC_MAC(P_NODE_MAC_ADDR)
+    .P_SRC_MAC(P_NODE_MAC_ADDR),
+    .P_NODE_ID_WIDTH(P_NODE_ID_WIDTH),
+    .P_KV_WIDTH(P_KV_WIDTH),
+    .P_HDR_ETHERTYPE_OFFSET(P_HDR_ETHERTYPE_OFFSET),
+    .P_HDR_SLOT_ID_OFFSET(P_HDR_SLOT_ID_OFFSET),
+    .P_HDR_NODE_ID_OFFSET(P_HDR_NODE_ID_OFFSET),
+    .P_HDR_KV_OFFSET(P_HDR_KV_OFFSET),
+    .P_HDR_PAYLOAD_OFFSET(P_HDR_PAYLOAD_OFFSET),
+    .P_DEST_MAC_0(P_DEST_MAC_0),
+    .P_DEST_MAC_1(P_DEST_MAC_1),
+    .P_DEST_MAC_2(P_DEST_MAC_2),
+    .P_DEST_MAC_3(P_DEST_MAC_3),
+    .P_DEST_MAC_4(P_DEST_MAC_4),
+    .P_BROADCAST_MAC(P_BROADCAST_MAC)
 ) consensus_tx_inst (
     .clk(clk),
     .rst_n(rst_n),
@@ -191,7 +231,14 @@ consensus_rx #(
     .P_AXIS_KEEP_WIDTH(P_AXIS_KEEP_WIDTH),
     .P_AXIS_USER_WIDTH(P_AXIS_RX_USER_WIDTH),
 
-    .P_ETHERNET_TYPE(P_ETHERNET_TYPE)
+    .P_ETHERNET_TYPE(P_ETHERNET_TYPE),
+    .P_LOG_ITEM_LEN(P_LOG_ITEM_LEN),
+    .P_KV_WIDTH(P_KV_WIDTH),
+    .P_HDR_ETHERTYPE_OFFSET(P_HDR_ETHERTYPE_OFFSET),
+    .P_HDR_SLOT_ID_OFFSET(P_HDR_SLOT_ID_OFFSET),
+    .P_HDR_NODE_ID_OFFSET(P_HDR_NODE_ID_OFFSET),
+    .P_HDR_KV_OFFSET(P_HDR_KV_OFFSET),
+    .P_HDR_PAYLOAD_OFFSET(P_HDR_PAYLOAD_OFFSET)
 ) consensus_rx_inst (
     .clk(clk),
     .rst_n(rst_n),
