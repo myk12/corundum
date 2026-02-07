@@ -620,16 +620,97 @@ initial begin
     end
 end
 
+//==============================================================================
+//                        Host control and status registers
+//==============================================================================
 /*
  * AXI-Lite slave interface (control from host)
  */
-axil_ram #(
+//axil_ram #(
+//    .DATA_WIDTH(AXIL_APP_CTRL_DATA_WIDTH),
+//    .ADDR_WIDTH(12),
+//    .STRB_WIDTH(AXIL_APP_CTRL_STRB_WIDTH),
+//    .PIPELINE_OUTPUT(1)
+//)
+//ram_inst (
+//    .clk(clk),
+//    .rst(rst),
+//
+//    .s_axil_awaddr(s_axil_app_ctrl_awaddr),
+//    .s_axil_awprot(s_axil_app_ctrl_awprot),
+//    .s_axil_awvalid(s_axil_app_ctrl_awvalid),
+//    .s_axil_awready(s_axil_app_ctrl_awready),
+//    .s_axil_wdata(s_axil_app_ctrl_wdata),
+//    .s_axil_wstrb(s_axil_app_ctrl_wstrb),
+//    .s_axil_wvalid(s_axil_app_ctrl_wvalid),
+//    .s_axil_wready(s_axil_app_ctrl_wready),
+//    .s_axil_bresp(s_axil_app_ctrl_bresp),
+//    .s_axil_bvalid(s_axil_app_ctrl_bvalid),
+//    .s_axil_bready(s_axil_app_ctrl_bready),
+//    .s_axil_araddr(s_axil_app_ctrl_araddr),
+//    .s_axil_arprot(s_axil_app_ctrl_arprot),
+//    .s_axil_arvalid(s_axil_app_ctrl_arvalid),
+//    .s_axil_arready(s_axil_app_ctrl_arready),
+//    .s_axil_rdata(s_axil_app_ctrl_rdata),
+//    .s_axil_rresp(s_axil_app_ctrl_rresp),
+//    .s_axil_rvalid(s_axil_app_ctrl_rvalid),
+//    .s_axil_rready(s_axil_app_ctrl_rready)
+//);
+
+//--------------------------------------------
+// V1 register map
+//--------------------------------------------
+// 32-bit registers, address aligned
+// 0x0000: ID           RO
+// 0x0004: VERSION      RO
+// 0x0008: CTRL         RW : bit0 enable app, bit1 reset app
+// 0x000C: ETHERTYPE    RW : Ethernet type for raw traffic (default 0x1234)
+// 0x0010: STATUS       RO : bit0 app enabled, bit1 app in reset
+// 0x0020: CNT_RX_HIT   RO : count of packets matching filter rules
+// 0x0024: CNT_RX_PASS  RO : count of packets not matching filter rules
+// 0x0028: CNT_TX_HIT   RO : count of packets matching filter rules
+// 0x002C: CNT_TX_PASS  RO : count of packets not matching filter rules
+// 0x0030: CNT_ERR      RO : count of DMA errors
+// 0x0034: CNT_CLEAR    RW : write 1 to clear all counters
+//--------------------------------------------
+
+localparam  [31:0] REG_ID_VAL        = 32'h434E534E;
+localparam  [31:0] REG_VERSION_VAL   = 32'h0001_0000;
+
+reg [31:0] reg_ctrl = 1'b0;
+reg reg_ctrl_enable = 1'b0;
+reg reg_ctrl_reset  = 1'b0;
+reg [15:0] reg_ctrl_ethertype = 16'hAE86; // default to IEEE 802.3 Ethernet type for raw traffic
+
+// counters
+reg [31:0] reg_cnt_rx_hit = 0;
+reg [31:0] reg_cnt_rx_pass = 0;
+reg [31:0] reg_cnt_tx_inj = 0;
+reg [31:0] reg_cnt_err = 0;
+reg cnt_clear_r = 1'b0;
+
+// interface registers
+reg [AXIL_APP_CTRL_ADDR_WIDTH-1:0]         reg_wr_addr;
+reg [AXIL_APP_CTRL_DATA_WIDTH-1:0]         reg_wr_data;
+reg [AXIL_APP_CTRL_STRB_WIDTH-1:0]         reg_wr_strb;
+reg                                        reg_wr_en;
+//reg                                        reg_wr_wait;
+reg                                        reg_wr_ack;
+
+reg [AXIL_APP_CTRL_ADDR_WIDTH-1:0]         reg_rd_addr;
+reg [AXIL_APP_CTRL_DATA_WIDTH-1:0]         reg_rd_data;
+reg                                        reg_rd_en;
+//reg                                        reg_rd_wait;
+reg                                        reg_rd_ack;
+
+// Instantiate register interface
+axil_reg_if #(
+    .ADDR_WIDTH(AXIL_APP_CTRL_ADDR_WIDTH),
     .DATA_WIDTH(AXIL_APP_CTRL_DATA_WIDTH),
-    .ADDR_WIDTH(12),
     .STRB_WIDTH(AXIL_APP_CTRL_STRB_WIDTH),
-    .PIPELINE_OUTPUT(1)
+    .TIMEOUT(0)
 )
-ram_inst (
+axil_reg_if_inst (
     .clk(clk),
     .rst(rst),
 
@@ -651,8 +732,71 @@ ram_inst (
     .s_axil_rdata(s_axil_app_ctrl_rdata),
     .s_axil_rresp(s_axil_app_ctrl_rresp),
     .s_axil_rvalid(s_axil_app_ctrl_rvalid),
-    .s_axil_rready(s_axil_app_ctrl_rready)
+    .s_axil_rready(s_axil_app_ctrl_rready),
+
+    .reg_wr_addr(reg_wr_addr),
+    .reg_wr_data(reg_wr_data),
+    .reg_wr_strb(reg_wr_strb),
+    .reg_wr_en(reg_wr_en),
+    .reg_wr_wait(1'b0),     // no wait states
+    .reg_wr_ack(reg_wr_ack),      // always acknowledge writes immediately
+
+    .reg_rd_addr(reg_rd_addr),
+    .reg_rd_data(reg_rd_data),
+    .reg_rd_en(reg_rd_en),
+    .reg_rd_wait(1'b0),    // no wait states, but data is always ready (combinational read)
+    .reg_rd_ack(reg_rd_ack)      // always acknowledge reads immediately
 );
+
+// Register write logic
+always @(posedge clk) begin
+    if (rst) begin
+        reg_ctrl_enable <= 1'b0;
+        reg_ctrl_ethertype <= 16'hAE86;
+        cnt_clear_r <= 1'b0;
+    end else begin
+        cnt_clear_r <= 1'b0;
+
+        if (reg_wr_en) begin
+            case ({reg_wr_addr[11:2], 2'b00}) // word aligned
+                12'h008: reg_ctrl <= reg_wr_data;
+                12'h00C: reg_ctrl_ethertype <= reg_wr_data[15:0];
+                12'h034: cnt_clear_r <= reg_wr_data[0];
+                default: ;
+            endcase
+
+            reg_wr_ack <= 1'b1; // acknowledge write immediately
+        end else begin
+            reg_wr_ack <= 1'b0;
+        end
+    end
+end
+
+// Register read logic
+always @(posedge clk) begin
+    if (rst) begin
+        reg_rd_data <= 0;
+    end else begin
+        if (reg_rd_en) begin
+            case ({reg_rd_addr[11:2], 2'b00}) // word aligned
+                12'h000: reg_rd_data <= REG_ID_VAL;
+                12'h004: reg_rd_data <= REG_VERSION_VAL;
+                12'h008: reg_rd_data <= reg_ctrl;
+                12'h00C: reg_rd_data <= {16'b0, reg_ctrl_ethertype};
+                12'h010: reg_rd_data <= {30'b0, reg_ctrl_enable, reg_ctrl_reset};
+                12'h020: reg_rd_data <= reg_cnt_rx_hit;
+                12'h024: reg_rd_data <= reg_cnt_rx_pass;
+                12'h028: reg_rd_data <= reg_cnt_tx_inj;
+                12'h02C: reg_rd_data <= 0; //reg_cnt_tx_pass;
+                12'h030: reg_rd_data <= reg_cnt_err;
+                default: reg_rd_data <= 0;
+            endcase
+            reg_rd_ack <= 1'b1; // acknowledge read immediately
+        end else begin
+            reg_rd_ack <= 1'b0;
+        end
+    end
+end
 
 /*
  * AXI-Lite master interface (control to NIC)
