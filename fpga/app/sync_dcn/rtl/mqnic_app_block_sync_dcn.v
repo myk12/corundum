@@ -756,6 +756,8 @@ always @(posedge clk) begin
         cnt_clear_r <= 1'b0;
     end else begin
         cnt_clear_r <= 1'b0;
+        reg_ctrl_enable <= reg_ctrl[0];
+        reg_ctrl_reset <= reg_ctrl[1];
 
         if (reg_wr_en) begin
             case ({reg_wr_addr[11:2], 2'b00}) // word aligned
@@ -768,6 +770,13 @@ always @(posedge clk) begin
             reg_wr_ack <= 1'b1; // acknowledge write immediately
         end else begin
             reg_wr_ack <= 1'b0;
+        end
+
+        if (cnt_clear_r) begin
+            reg_cnt_rx_hit <= 0;
+            reg_cnt_rx_pass <= 0;
+            reg_cnt_tx_inj <= 0;
+            reg_cnt_err <= 0;
         end
     end
 end
@@ -993,7 +1002,7 @@ end else begin : gen_if_consensus
         .rst(rst),
 
         // Control signals
-        .i_enable(enable_consensus),
+        .i_enable(reg_ctrl_enable),
 
         // PTP inputs for timestamping
         .ptp_clk(ptp_clk),

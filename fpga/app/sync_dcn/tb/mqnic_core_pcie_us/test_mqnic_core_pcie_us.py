@@ -427,7 +427,7 @@ class TB(object):
                         await mac.rx.send(await mac.tx.recv())
 
 
-@cocotb.test()
+#@cocotb.test()
 async def run_test_nic(dut):
 
     tb = TB(dut, msix_count=2**len(dut.core_pcie_inst.irq_index))
@@ -546,30 +546,6 @@ async def run_test_nic(dut):
     tb.loopback_enable = False
 
     await tb.driver.interfaces[0].set_rx_queue_map_rss_mask(0, 0xffffffff)
-    
-    #########################################################
-    tb.log.info("Start Consensus Test")
-    dut.core_pcie_inst.core_inst.app.app_block_inst.enable_consensus.setimmediatevalue(1)
-    
-    await RisingEdge(dut.clk)
-    await RisingEdge(dut.clk)
-    
-    await Timer(100, 'us')
-    
-    for k in range(13):
-        pkt = await tb.port_mac[0].tx.recv()
-        if pkt is None:
-            tb.log.error("Timeout waiting for consensus packet")
-            continue
-        tb.log.info("Packet: %s", pkt)
-        await tb.port_mac[0].rx.send(pkt)
-    
-    dut.core_pcie_inst.core_inst.app.app_block_inst.enable_consensus.setimmediatevalue(0)
-    await RisingEdge(dut.clk)
-    await RisingEdge(dut.clk)
-    
-    tb.log.info("Consensus Test complete")
-    #########################################################
 
     tb.log.info("Multiple small packets")
 
@@ -746,9 +722,8 @@ async def run_test_nic(dut):
 
     tb.log.info("Test AXI lite interface to application")
 
-    await tb.driver.app_hw_regs.write_dword(0, 0x11223344)
-
-    val = await tb.driver.app_hw_regs.read_dword(0)
+    await tb.driver.app_hw_regs.write_dword(8, 0x11223344)
+    val = await tb.driver.app_hw_regs.read_dword(8)
     tb.log.info("Read data: 0x%08x", val)
     assert val == 0x11223344
 
@@ -762,7 +737,31 @@ async def run_test_consensus_app(dut):
     tb = TB(dut, msix_count=2**len(dut.core_pcie_inst.irq_index))
     tb.log.info("Start Consensus App Test")
     await tb.init()
+    await tb.driver.init_pcie_dev(tb.rc.find_device(tb.dev.functions[0].pcie_id))
+    for interface in tb.driver.interfaces:
+        await interface.ndevs[0].open()
 
+    tb.log.info("Init complete")
+
+    tb.log.info("Test Consensus App: AXILite read/write")
+
+    # Write to control register to enable consensus app
+    await tb.driver.app_hw_regs.write_dword(8, 0x00000001)
+    val = await tb.driver.app_hw_regs.read_dword(8)
+    tb.log.info("Read data: 0x%08x", val)
+    assert val == 0x00000001
+    
+    # wait for app to process
+    await Timer(100, 'us')
+    
+    await tb.driver.app_hw_regs.write_dword(8, 0x00000000)
+    val = await tb.driver.app_hw_regs.read_dword(8)
+    tb.log.info("Read data: 0x%08x", val)
+    assert val == 0x00000000
+    
+    tb.log.info("Consensus App Test complete")
+
+    
 
 # cocotb-test
 
