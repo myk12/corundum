@@ -98,23 +98,67 @@ sync_dcn/
 
 ## Simulation
 
-The testbench under [tb/mqnic_core_pcie_us](tb/mqnic_core_pcie_us) provides a PCIe/AXI-based simulation environment and Python tests for functional validation. Build artifacts and waves are also placed there during simulation.
+The testbench under [tb/mqnic_sync_dcn](tb/mqnic_core_sync_dcn) provides a PCIe/AXI-based simulation environment and Python tests for functional validation. Build artifacts and waves are also placed there during simulation.
 
-## How to Extend
+This section describes the simulation environment used to validate protocol correctness with controlled network assumptions.
 
-- Adjust header offsets and field widths to support VLAN/QinQ or alternative encodings.
-- Provide a custom destination MAC table via wrapper parameters for your deployment.
-- Modify or extend **consensus_core.v** to change the consensus algorithm or quorum rule.
-- Add new application registers in **mqnic_app_block_sync_dcn.v** for control/status.
-- Update the **consensus_app_wrapper.v** RX routing policy if you introduce new frame types.
-- Implement a custom user-space or kernel driver using the template as a starting point.
+### Why we simulate this way
 
-## Notes & Caveats
+A synchronous consensus protocol is sensitive to:
+- bounded delay (Δ)
+- slot boundaries and phase alignment
+- message ordering, duplication, and loss
+- “late” messages arriving outside the intended slot
 
-- This application assumes **synchronous networking** with deterministic slot timing.
-- Frame arbitration is **non-preemptive** (no interleaving mid-frame).
-- The current host interface in the wrapper is tied off; add host interaction paths if needed.
+A pure MAC loopback can hide these issues by collapsing the network model into a trivial self-loop. Instead, we use:
+1. Hardware DUT: the real Corundum + consensus app
+2. Software DUTs: reference nodes executing the same protocol logic (or a simplified model)
+3. Switch/Network Simulator: a synchronous network scheduler that enforces Δ and slot semantics
 
----
 
-If you need a deeper walkthrough (e.g., a complete signal-level data path or timing diagram), request it and specify the exact module or flow.
+### Hardware DUT
+
+Hardware DUT = mqnic_core_pcie_us (Corundum’s full PCIe NIC top-level), including:
+
+- PCIe endpoint model (via cocotbext-pcie RootComplex + UltraScale+ device model)
+- MAC model(s) (cocotbext-eth EthMac)
+- Your integrated app block (mqnic_app_block_sync_dcn.v)
+
+Initialization follows Corundum’s reference TB, including:
+- clocks/resets
+- PCIe enumeration
+- driver init (mqnic.Driver)
+- link status tie-offs
+- optional loopback helpers (for non-consensus baseline tests)
+
+Reference: test_mqnic_sync_dcn.py (based on Corundum’s test_mqnic_core_pcie_us.py).
+
+### Software DUTs (2 nodes)
+
+We model two peer nodes in Python:
+- Software Node 1
+- Software Node 2
+
+Each software node:
+1. Receives consensus frames from the network simulator.
+2. Runs protocol logic (full protocol or a reference model).
+3. Emits response frames (vote/echo/commit/etc.) back to the network simulator.
+
+Key design goals:
+1. Deterministic behavior (seeded randomness)
+2. Explicit state visibility (for debugging and assertions)
+3. Ability to inject adversarial behaviors (crash-stop, slow node, inconsistent proposals)
+
+### Switch / Synchronous Network Simulator
+
+The “switch simulator” is a network scheduler coroutine that mediates traffic between nodes:
+- Collect frames from HW MAC TX: tb.port_mac[0].tx.recv()
+- Deliver to SW nodes with controlled timing: 
+  1. delay model: delay ∈ [0, Δ] (+ optional jitter)
+  2. policies: reorder/duplicate/drop
+-	Collect SW node responses and deliver to HW MAC RX: tb.port_mac[0].rx.send(EthMacFrame(...))
+
+Crucially, the simulator can enforce slot semantics:
+- Deliver messages only within the slot window they belong to.
+- Delay messages into the next slot to test “late message” handling.
+- Drop messages that violate Δ to test safe failure behavior.
