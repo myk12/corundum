@@ -21,4 +21,6 @@ modules.order
 *.log
 *.str
 
+*.str
+
 tags
