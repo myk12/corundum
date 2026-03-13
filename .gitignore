@@ -3,9 +3,7 @@
 *.pyc
 *.vvp
 *.kate-swp
-*.fst
-*.v
-*.hier
+
 
 .*
 !.gitignore
