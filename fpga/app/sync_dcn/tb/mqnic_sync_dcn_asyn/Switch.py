@@ -18,6 +18,10 @@ from cocotbext.axi import AxiSlave, AxiBus, SparseMemoryRegion
 from cocotbext.eth import EthMac
 from cocotbext.pcie.core import RootComplex
 from cocotbext.pcie.xilinx.us import UltraScalePlusPcieDevice
+PROT_RATE = 10 #Gbps
+FLOW_SIZE_BYTES = 1500#
+HOP_DELAY_NS = 600  # 
+
 class Switch:
     def __init__(self,zone1,zone2,switch_id):
         self.sw_nodes = []
@@ -25,6 +29,7 @@ class Switch:
         self.zone1 = zone1
         self.zone2 = zone2
         self.switch_id = switch_id
+        self.tasks = []
 
 
     def add_sw_node(self, sw_node, port=None):
@@ -36,6 +41,7 @@ class Switch:
         self.switchs.append({"switch": switch, "port": port})
         return switch
     async def receive_packet_leaf(self, pkt: Ether, sender_id: int, hw_node: bool,receiver_id:int,switch_id:int):
+        await Timer(HOP_DELAY_NS, 'ns')  # Simulate hop delay
         if switch_id ==1:
             target_switch_id = 2
         else:
@@ -46,14 +52,16 @@ class Switch:
 
     async def receive_packet_root(self, pkt: Ether, sender_id : int, receiver_id: int):#node尝试把消息广播到
         #检查receiver_id是否在software节点中
+        await Timer(HOP_DELAY_NS, 'ns')  # Check every hop delay
         node = next((node for node in self.sw_nodes if node["node"].node_id == receiver_id), None)
        
         assert node["node"].node_id != sender_id and node is not None, f"Receiver node with ID {receiver_id} not found in switch {self.switch_id} or sender and receiver are the same"
-        node["node"].log.info(f"Software Node {node['node'].node_id} received packet from Node {sender_id}: {pkt.summary()}")
+        #node["node"].log.info(f"Software Node {node['node'].node_id} received packet from Node {sender_id}: {pkt.summary()}")
         await node["node"].recv_packet(pkt)
 
 
     async def receive_packet_node(self, pkt: Ether, sender_id : int, receiver_id: int):#node尝试把消息广播到
+        await Timer(HOP_DELAY_NS, 'ns')  # Check every hop delay
         #检查receiver_id是否在software节点中
         node = next((node for node in self.sw_nodes if node["node"].node_id == receiver_id), None)
         if node is None:
@@ -63,19 +71,20 @@ class Switch:
 
         else:
             assert node["node"].node_id != sender_id
-            node["node"].log.info(f"Software Node {node['node'].node_id} received packet from Node {sender_id}: {pkt.summary()}")
+            #node["node"].log.info(f"Software Node {node['node'].node_id} received packet from Node {sender_id}: {pkt.summary()}")
             await node["node"].recv_packet(pkt)
         
 
     def start(self):
         for node in self.sw_nodes:
-            cocotb.start_soon(node['node']._run_consensus_app())  # Start software node runner
+            task = cocotb.start_soon(node['node']._run_consensus_app())  # Start software node runner
+            self.tasks.append(task)
 
         #cocotb.start_soon(self.hw_dut._run_consensus_app())  # Start hardware DUT runner
 
-    def stop(self):
-        for node in self.sw_nodes:
-            cocotb.start_soon(node['node']._stop_consensus_app())  # Stop software node runner
+    async def wait_done(self):
+        for task in self.tasks:
+            await task
 
         #self.hw_dut._running = False
         #cocotb.start_soon(self.hw_dut._stop_consensus_app())  # Stop hardware DUT runner

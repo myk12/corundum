@@ -1,0 +1,6 @@
+<testsuites name="results">
+  <testsuite name="all" package="all">
+    <property name="random_seed" value="1773686346" />
+    <testcase name="test_sync_consensus_1hw2sw" classname="test_mqnic_sync_dcn" file="/home/krakos/niwe/SOSP26/corundum/fpga/app/sync_dcn/tb/mqnic_sync_dcn_v1/test_mqnic_sync_dcn.py" lineno="489" time="182.18039107322693" sim_time_ns="311263.523438" ratio_time="1708.545698054235" />
+  </testsuite>
+</testsuites>

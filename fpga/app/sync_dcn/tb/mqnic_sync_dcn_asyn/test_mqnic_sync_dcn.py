@@ -37,7 +37,6 @@ except ImportError:
     finally:
         del sys.path[0]
         
-ETHTYPE_CONSENSUS = 0xAE86
         
 def display_consensus_packet(pkt):
     ether_header = pkt[Ether]
@@ -484,113 +483,6 @@ class HardwareDut(object):
         self.app_block.reg_ctrl.setimmediatevalue(0)
         await RisingEdge(self.dut.clk)
 
-class SoftwareNode:
-    def __init__(self, node_id, node_mac, ptp_clock_tod):
-        self.node_id = node_id
-        self.node_mac = node_mac
-        self.log = SimLog(f"cocotb.sw_node_{node_id}")
-        self.network_connected = False
-        self.ptp_clock_tod = ptp_clock_tod
-        
-        self.slot_len = 10 # Slot length in microseconds, should be configured to match the hardware DUT's slot length
-        self.current_slot = 0
-        # Time to send packet in microseconds, staggered based on node ID to avoid collisions
-        self.send_time = 2 * self.node_id
-        self._running = False
-        
-    def install_network(self, network):
-        self.network = network
-        self.network_connected = True
-
-    def create_consensus_packet(self, slot_id: int):
-        # Create a packet with the necessary information for consensus
-        # Packet Format:
-        # [Ethernet Header][Consensus Header][Payload]
-        # - Ethernet Header: destination MAC (6 bytes), source MAC (6 bytes), ethertype (2 bytes)
-        # - Consensus Header: slot_id 8 bytes, node_id 1 byte, ack_vec 1 byte
-        # - Payload: padding node_id to 40 bytes total
-        eth_header = Ether(src=self.node_mac, dst="ff:ff:ff:ff:ff:ff", type=ETHTYPE_CONSENSUS)
-        consensus_header = struct.pack("!QBB", slot_id, self.node_id, 0x07)  # Example consensus header
-        payload = bytes([self.node_id]) * 40  # Padding node_id to 40 bytes total
-
-        pkt = eth_header / Raw(consensus_header + payload)
-
-        return pkt
-    
-    async def recv_packet(self, pkt: Ether):
-        # Process received packet and update internal state as needed
-        self.log.info(f"Node {self.node_id} received packet: {pkt.summary()}")
-        display_consensus_packet(pkt)
-    
-    async def _run_consensus_app(self):
-        assert self.network_connected, "Network must be connected before starting consensus app runner"
-        self.log.info("Starting consensus app runner")
-        self._running = True
-        last_slot_id = -1
-
-        while True and self._running:
-            # wait clock cycle or event to trigger consensus app logic
-            await Timer(2, 'us')  # Check every microsecond
-
-            ptp_val = int(self.ptp_clock_tod.value)
-            current_ts_ns = (ptp_val >> 16) & 0xFFFFFFFF  # Extract current PTP time in nanoseconds (assuming TOD format with 16 fractional bits)
-            current_slot_id = (current_ts_ns // (self.slot_len * 1000))  # Calculate current slot ID based on PTP time
-
-            if current_slot_id != last_slot_id:
-                self.log.info(f"Node {self.node_id} entering slot {current_slot_id}")
-                # new slot, send packtet
-                last_slot_id = current_slot_id
-
-                pkt = self.create_consensus_packet(current_slot_id)
-
-                await self.network.synchronous_broadcast(pkt, sender_id=self.node_id, hw_node=False)
-                self.log.info(f"Node {self.node_id} sent packet for slot {current_slot_id}")
-
-    async def _stop_consensus_app(self):
-        self.log.info("Stopping consensus app runner")
-        self._running = False
-
-class SyncDCN:
-    def __init__(self):
-        self.sw_nodes = []
-
-    def add_sw_node(self, sw_node):
-        self.sw_nodes.append(sw_node)
-        return sw_node
-
-    def add_hw_dut(self, hw_dut):
-        self.hw_dut = hw_dut
-
-    async def synchronous_broadcast(self, pkt: Ether, sender_id : int, hw_node: bool):
-        # Broadcast packet to all nodes (including hardware DUT)
-        self.hw_dut.log.info(f"Broadcasting packet from Node {sender_id}: {pkt.summary()}")
-        if hw_node:
-            # If sender is hardware DUT, send to all software nodes
-            for node in self.sw_nodes:
-                node.log.info(f"Software Node {node.node_id} received packet from Hardware DUT: {pkt.summary()}")
-                await node.recv_packet(pkt)
-        else:
-            # If sender is software node, send to hardware DUT and other software nodes
-            self.hw_dut.log.info(f"Hardware DUT received packet from Node {sender_id}: {pkt.summary()}")
-            await self.hw_dut.recv_packet(pkt)
-
-            for node in self.sw_nodes:
-                if node.node_id != sender_id:
-                    node.log.info(f"Software Node {node.node_id} received packet from Node {sender_id}: {pkt.summary()}")
-                    await node.recv_packet(pkt)
-
-    def start(self):
-        for node in self.sw_nodes:
-            cocotb.start_soon(node._run_consensus_app())  # Start software node runner,协程注册
-
-        cocotb.start_soon(self.hw_dut._run_consensus_app())  # Start hardware DUT runner
-
-    def stop(self):
-        for node in self.sw_nodes:
-            cocotb.start_soon(node._stop_consensus_app())  # Stop software node runner
-
-        self.hw_dut._running = False
-        cocotb.start_soon(self.hw_dut._stop_consensus_app())  # Stop hardware DUT runner
 
 @cocotb.test()
 async def test_sync_consensus_1hw2sw(dut):
@@ -652,10 +544,7 @@ async def test_sync_consensus_1hw2sw(dut):
     pipline2.start()
     pipline3.start()
 
-    await Timer(1, 'ms')  # Run the test for a certain duration, 只有一个协程可以执行
-    #cocotb 里同一个时刻醒来的协程，按照注册顺序排队，不是随机的
-
-    pipline1.stop()
-    pipline2.stop()
-    pipline3.stop()
+    await pipline1.wait_done()
+    await pipline2.wait_done()
+    await pipline3.wait_done()
     tb.log.info("Test complete")
