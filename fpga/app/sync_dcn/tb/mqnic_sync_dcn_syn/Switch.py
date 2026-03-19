@@ -20,7 +20,7 @@ from cocotbext.pcie.core import RootComplex
 from cocotbext.pcie.xilinx.us import UltraScalePlusPcieDevice
 PROT_RATE = 10 #Gbps
 FLOW_SIZE_BYTES = 1500#
-HOP_DELAY_NS = 600  # 
+HOP_DELAY_NS = 500  # 
 
 class Switch:
     def __init__(self,zone1,zone2,switch_id):

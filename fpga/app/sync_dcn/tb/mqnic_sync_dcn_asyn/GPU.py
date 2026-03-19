@@ -160,7 +160,7 @@ class GpuNode:
         self.send_counter=7
         while self._running:
             # wait clock cycle or event to trigger consensus app logic
-            await Timer(2, 'us')  # Check every microsecond
+            await Timer(0.2, 'us')  # Check every microsecond
             old_state = self.state
             await self.check_status()  
             if self._running == False:
@@ -175,7 +175,7 @@ class GpuNode:
             current_ts_ns = (ptp_val >> 16) & 0xFFFFFFFF  # Extract current PTP time in nanoseconds (assuming TOD format with 16 fractional bits)
             current_slot_id = (current_ts_ns // (self.slot_len * 1000))  # Calculate current slot ID based on PTP time
 
-            if current_slot_id != last_slot_id and self.send_counter != 0:  # New slot and ready to send
+            if self.send_counter != 0:#if current_slot_id != last_slot_id and self.send_counter != 0:  # New slot and ready to send
                 self.send_counter -= 1
                 #self.log.info(f"Node {self.node_id} entering slot {current_slot_id}")
                 # new slot, send packtet

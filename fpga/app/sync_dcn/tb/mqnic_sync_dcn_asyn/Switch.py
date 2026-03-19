@@ -73,6 +73,9 @@ class Switch:
             assert node["node"].node_id != sender_id
             #node["node"].log.info(f"Software Node {node['node'].node_id} received packet from Node {sender_id}: {pkt.summary()}")
             await node["node"].recv_packet(pkt)
+    async def running(self):
+        while True:
+            await Timer(HOP_DELAY_NS, 'ns')  # Simulate switch processing delay
         
 
     def start(self):

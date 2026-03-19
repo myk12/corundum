@@ -28,7 +28,7 @@ ETHTYPE_AFTER_MOE = 0xAE8A
 MOE_MS = 1.4 #A100
 ATTEN_NS = 2000
 LAYER_NUM = 2
-SLOT_LEN_US = 10
+SLOT_LEN_US = 2
 class PacketType(enum.IntEnum):
     BEFORE_ATTENTION = 1
     AFTER_ATTENTION = 2
@@ -147,7 +147,7 @@ class GpuNode:
         self.send_counter=7
         while self._running:
             # wait clock cycle or event to trigger consensus app logic
-            await Timer(2, 'us')  # Check every microsecond
+            await Timer(0.2, 'us')  # Check every microsecond
             old_state = self.state
             await self.check_status()  
             if self._running == False:
