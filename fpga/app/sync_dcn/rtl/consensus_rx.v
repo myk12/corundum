@@ -16,7 +16,7 @@ module consensus_rx #(
 
     // Header byte offsets (from start of Ethernet frame)
     parameter integer   P_HDR_ETHERTYPE_OFFSET = 12,
-    parameter integer   P_HDR_SLOT_ID_OFFSET   = 14,
+    parameter integer   P_HDR_WINDOW_ID_OFFSET = 14,
     parameter integer   P_HDR_NODE_ID_OFFSET   = 22,
     parameter integer   P_HDR_KV_OFFSET        = 23,
     parameter integer   P_HDR_PAYLOAD_OFFSET   = 24
@@ -27,7 +27,7 @@ module consensus_rx #(
 
     // Control Signals from Scheduler
     input wire                              i_timing_rx_enabled,
-    input wire [63:0]                       i_timing_current_slot_id,
+    input wire [63:0]                       i_timing_current_window_id,
 
     // AXI Stream Slave Input
     input wire [P_AXIS_DATA_WIDTH-1:0]      s_axis_mac_rx_tdata,
@@ -68,8 +68,8 @@ endfunction
 wire [15:0] w_ethertype_net = s_axis_mac_rx_tdata[P_HDR_ETHERTYPE_OFFSET*8 +: 16];
 wire [15:0] w_ethertype     =   swap16(w_ethertype_net);
 
-wire [63:0] w_slot_id_net   = s_axis_mac_rx_tdata[P_HDR_SLOT_ID_OFFSET*8 +: 64];
-wire [63:0] w_rx_slot_id    = swap64(w_slot_id_net);
+wire [63:0] w_window_id_net = s_axis_mac_rx_tdata[P_HDR_WINDOW_ID_OFFSET*8 +: 64];
+wire [63:0] w_rx_window_id  = swap64(w_window_id_net);
 
 wire [7:0] w_rx_node_id     = s_axis_mac_rx_tdata[P_HDR_NODE_ID_OFFSET*8 +: 8];
 
@@ -110,8 +110,8 @@ always @(*) begin
     if (s_axis_mac_rx_tvalid && s_axis_mac_rx_tlast) begin
         // Check Ethertype
         if (w_ethertype == P_ETHERNET_TYPE) begin
-            // Check Slot ID matches current slot
-            if (w_rx_slot_id == i_timing_current_slot_id) begin
+            // Check that the frame belongs to the currently active window.
+            if (w_rx_window_id == i_timing_current_window_id) begin
                 // Check Node ID within range
                 if (w_rx_node_id < P_NODE_COUNT) begin
                     r_packet_valid = 1'b1;

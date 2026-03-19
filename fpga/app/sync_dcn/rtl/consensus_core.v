@@ -3,10 +3,17 @@
 /*
  * Synchronous Consensus Core Module:
  *
- * Here we assume there is a synchronous distributed system with fixed time slots.
- * Each node sends and receives packets in its designated time slots.
- * Based on the assumptions, we implement a simple consensus core that processes
- * incoming packets and outputs data to the application layer.
+ * This core runs inside a synchronous distributed system driven by compiled
+ * execution windows.  The surrounding schedule executor decides when a local
+ * consensus collect window opens and when the protocol should transition to its
+ * commit phase.  The core therefore focuses only on protocol state, not on
+ * PHC math or online schedule arbitration.
+ *
+ * Current implementation note:
+ * one logical consensus round is expected to map to one execution window.  The
+ * surrounding packet format uses the executor's current_window_id as the round
+ * identifier, so splitting one logical round across multiple execution windows
+ * would currently change the on-wire round id.
  *
 */
 
@@ -21,12 +28,13 @@ module consensus_core #(
     // clock and reset
     input wire                                  clk,
     input wire                                  rst_n,
+    input wire                                  i_clear_halt,
 
-    // timing control interface (from scheduler )
-    input wire [63:0]                           i_current_slot_id,
-    input wire                                  i_new_slot_pulse,
+    // timing control interface (from the compiled schedule executor)
+    input wire [63:0]                           i_current_window_id,
+    input wire                                  i_window_open_pulse,
     input wire                                  i_commit_start_pulse,
-    input wire                                  i_slot_end_pulse,
+    input wire                                  i_window_close_pulse,
 
     // data interface
     input wire                                  i_rx_valid,
@@ -65,7 +73,7 @@ reg [P_NODE_COUNT-1:0]          r_knowledge_matrix [0:P_NODE_COUNT-1];  // knowl
 reg [P_NODE_COUNT-1:0]          r_rx_mask;
 reg [P_NODE_COUNT-1:0]          r_last_rx_mask;     // This is my own knowledge vector                      // received mask
 
-// logs in this slot
+// logs observed in the current execution window
 reg [P_LOG_ITEM_LEN*8-1:0]      r_propose_log [0:P_NODE_COUNT-1];       // proposed logs
 reg [P_LOG_ITEM_LEN*8-1:0]      r_commit_log [0:P_NODE_COUNT-1];        // acknowledged logs
 wire [P_NODE_COUNT-1:0]        r_consensus_reached;                    // consensus reached for each node
@@ -142,7 +150,7 @@ assign r_halt_condition_met = (r_rx_number < P_CONSENSUS_QUORUM) || r_am_i_blind
 // ------------------------------------------------
 
 always @(posedge clk) begin
-    if (!rst_n) begin
+    if (!rst_n || i_clear_halt) begin
         state <= S_IDLE;
     end else begin
         state <= next_state;
@@ -156,14 +164,14 @@ always @(*) begin
     // default assignments
     next_state = state;
 
-    if (i_new_slot_pulse & !o_system_halt) begin
-        // on new slot, go to COLLECT
+    if (i_window_open_pulse & !o_system_halt) begin
+        // Open a new synchronous collect window.
         next_state = S_COLLECT;
     end
     else begin
         case (state)
             S_IDLE: begin
-                if (i_new_slot_pulse & !o_system_halt) begin
+                if (i_window_open_pulse & !o_system_halt) begin
                     next_state = S_COLLECT;
                 end
             end
@@ -190,7 +198,7 @@ end
 //  FSM PART 3: state actions (sequential)
 // ------------------------------------------------
 always @(posedge clk) begin
-    if (!rst_n) begin
+    if (!rst_n || i_clear_halt) begin
         // reset all registers
         for (i = 0; i < P_NODE_COUNT; i = i + 1) begin
             r_knowledge_matrix[i] <= {P_NODE_COUNT{1'b0}};
@@ -207,11 +215,12 @@ always @(posedge clk) begin
         r_last_rx_mask <= {P_NODE_COUNT{1'b0}};
         o_system_halt <= 1'b0;
         o_alive_mask <= {P_NODE_COUNT{1'b1}};
+        o_tx_knowledge_vec <= {P_NODE_COUNT{1'b1}};
 
     end else begin
         case (state)
             S_IDLE: begin
-                // Prepare for new slot
+                // Prepare for the next execution window.
                 if (next_state == S_COLLECT) begin
                     // Clear buffers
                     for (i = 0; i < P_NODE_COUNT; i = i + 1) begin

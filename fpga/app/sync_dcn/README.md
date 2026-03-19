@@ -1,164 +1,258 @@
-# Sync DCN Application (Corundum)
+# Sync-DCN
 
-This directory contains a custom Corundum application named **sync_dcn**. It integrates a **synchronous consensus** data plane into the `mqnic` FPGA NIC design and provides RTL, simulation, and software scaffolding. The design targets **time-slotted, synchronous networks** where each node transmits/receives in fixed slots and reaches consensus on per-slot log items.
+Sync-DCN is the active research prototype for a deterministic FPGA network
+interface inside Corundum. The system compiles structured distributed
+workloads offline and enforces the resulting schedule at the NIC using a
+synchronized time base.
 
-## Purpose
+At a high level, the active design is:
 
-- Provide an **FPGA-resident consensus pipeline** that runs in lock-step slots using PTP time.
-- Route traffic between host DMA and the network while allowing the consensus core to inject/receive packets.
-- Offer a starting point for **custom applications** on Corundum with both RTL and Linux/user-space hooks.
-
-## High-Level Functionality
-
-- **Consensus core** processes packets from peers, tracks node health, and produces committed logs per slot.
-- **AXI-Stream wrapper** performs frame-aware arbitration between host DMA and consensus traffic, and routes RX frames by EtherType.
-- **Corundum application block** integrates the consensus logic with the `mqnic` application interface (AXI-Lite control, DMA, and MAC streams).
-- **Simulation testbench** enables functional verification around the PCIe/AXI datapath.
-
-## Directory Layout
-
+```text
+split system input
+-> offline global co-compiler
+-> processor / NIC / fabric artifacts
+-> host-side programming
+-> PHC-driven FPGA execution
 ```
+
+The current prototype targets two workload classes:
+
+- MoE-style AI communication
+- periodic consensus control traffic
+
+The implementation already supports:
+
+- split system input:
+  - workload specification
+  - processor timing model
+  - topology and fabric model
+- formal multi-target artifacts:
+  - `results/processor`
+  - `results/nic`
+  - `results/fabric`
+- split TX/RX scheduling in the formal NIC artifact and RTL executor
+- topology-derived OCS epoch durations
+- a compatibility-only lowering path for the older merged FPGA execution model
+
+The implementation intentionally does not yet claim true local per-plane
+parallel transmission. The active hardware path uses split TX/RX scheduling
+with a shared local datapath.
+
+## Core System Model
+
+The system is organized around three compiler-visible input classes.
+
+1. Workload specification
+   This describes structured application communication, such as a Mixtral
+   8x7B MoE inference sequence or periodic consensus rounds.
+2. Processor timing model
+   This gives bounded latency budgets for processor-visible phases such as
+   dispatch preparation, expert computation, combine preparation, and
+   completion slack.
+3. Topology and fabric model
+   This captures EPS and OCS properties, including bounded-delay behavior,
+   OCS reconfiguration cost, guard requirements, link rate, and fixed fabric
+   latency terms used during schedule construction.
+
+The compiler uses these three inputs to build a global execution plan and then
+lowers that plan into component-specific artifacts.
+
+## Formal Artifacts
+
+The current target architecture is expressed through three formal artifact
+classes.
+
+### Processor Artifacts
+
+Per-node processor artifacts contain:
+
+- processor phase timelines
+- AI trace descriptors and timing contracts
+
+These artifacts describe when local computation phases occur and what
+processor/plugin-side communication contract should be visible to the runtime.
+
+### NIC Artifacts
+
+Per-node NIC artifacts contain:
+
+- `tx_execution_entries`
+- `rx_execution_entries`
+- activation metadata
+
+These artifacts are schedule-only views of endpoint communication behavior.
+Passive fabric windows such as OCS guard and reconfiguration intervals are not
+stored here.
+
+### Fabric Artifacts
+
+Fabric artifacts contain plane-specific network control schedules:
+
+- EPS control windows
+- OCS epochs
+- OCS guard and reconfiguration intervals
+
+This keeps switching-fabric control separate from endpoint-local execution.
+
+## Prototype Compatibility Path
+
+The repository still emits a compatibility-only artifact under:
+
+- `compat/prototype_runtime`
+
+This path exists solely to bridge the formal processor/NIC/fabric decomposition
+to the current FPGA prototype bring-up model. It merges:
+
+- active local windows
+- passive OCS windows
+- FPGA-resident AI trace programming
+
+Use this compatibility path only when explicitly targeting the older merged
+prototype flow. The preferred path for understanding the current architecture
+is the formal one:
+
+- `results/processor`
+- `results/nic`
+- `results/fabric`
+
+## Repository Layout
+
+```text
 sync_dcn/
-├─ rtl/                 # RTL implementation (Verilog)
-├─ tb/                  # Testbench and simulation artifacts
-├─ modules/             # Linux kernel modules (app + mqnic driver copy)
-├─ utils/               # User-space utilities and libraries
-└─ lib/                 # Shared IP libraries (axis/eth/pcie/psmake)
+├─ rtl/                    active deterministic-NIC RTL
+├─ tb/
+│  └─ sync_dcn_subsystem/ active cocotb sign-off boundary
+├─ modules/
+│  └─ mqnic -> ../../../../modules/mqnic/
+├─ utils/
+│  ├─ system_input/       split-input loaders and builders
+│  ├─ global_co_compiler/ global planning
+│  ├─ per_node_lowering/  local JSON ABI lowering helpers
+│  ├─ host_control_plane/ MMIO helpers and programmer
+│  ├─ experiment_flow/    full workspace generation
+│  └─ visualization/      schedule export helpers
+└─ README.md
 ```
 
-## Key RTL Modules
+## Where To Start
 
-### Application Block Integration
-- **mqnic_app_block_sync_dcn.v**
-  - Corundum application block integration point.
-  - Connects AXI-Lite control, DMA descriptors, and MAC AXIS ports.
-  - Instantiates and wires the sync DCN application logic.
+### Software Path
 
-### Consensus Logic
-- **consensus_core.v**
-  - Implements the core state machine for slot-based consensus.
-  - Tracks knowledge vectors, alive mask, and commit decisions.
-  - Produces committed log items and health status.
+Read these in order:
 
-- **consensus_node.v**
-  - Node-level wrapper around the consensus core.
-  - Manages timing (slot boundaries) and packet formatting.
-  - Interfaces to MAC AXIS streams for TX/RX.
+1. [`utils/system_input/README.md`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/utils/system_input/README.md)
+2. [`utils/global_co_compiler/README.md`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/utils/global_co_compiler/README.md)
+3. [`utils/experiment_flow/README.md`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/utils/experiment_flow/README.md)
+4. [`utils/host_control_plane/README.md`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/utils/host_control_plane/README.md)
 
-### AXI-Stream Wrapper
-- **consensus_app_wrapper.v**
-  - Frame-aware arbiter for TX: **core traffic has priority**, switch only on frame boundaries.
-  - RX routing based on EtherType (default 0x88B5 for consensus frames).
-  - Bypass mode when disabled: Host DMA ↔ MAC directly.
+### RTL Path
 
-### Other RTL Support
-- **consensus_rx.v / consensus_tx.v / consensus_scheduler.v**
-  - RX parsing, TX framing, and slot scheduling helpers.
+Read these in order:
 
-## Software Components
+1. [`rtl/README.md`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/rtl/README.md)
+2. [`rtl/sync_dcn_subsystem.v`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/rtl/sync_dcn_subsystem.v)
+3. [`rtl/sync_schedule_executor.v`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/rtl/sync_schedule_executor.v)
+4. [`rtl/sync_dcn_apps.v`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/rtl/sync_dcn_apps.v)
+5. [`rtl/ai_trace_replay.v`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/rtl/ai_trace_replay.v)
 
-### Kernel Modules
-- **modules/mqnic**
-  - Copy of the `mqnic` driver sources used for local integration and builds.
-- **modules/mqnic_app_template**
-  - Template auxiliary driver that binds to an application ID and accesses app registers.
+## Active Example Inputs
 
-### User-Space Utilities
-- **utils/app-template-test.c**
-  - Simple test app to open `/dev/mqnicX`, check app ID, and perform a register read/write.
+Two split-input bundles are intentionally kept as the main examples.
 
-## Configuration Notes
+### Compact 8-node MoE example
 
-### Top-level (Wrapper) Parameters
-- **`P_CONSENSUS_ETHERTYPE`**: EtherType for consensus frames (default `0x88B5`).
-- **`P_HDR_ETHERTYPE_OFFSET_BYTES`**: Byte offset of EtherType field in Ethernet frame (default `12`).
-- **`P_SLOT_DURATION_NS` / `P_GUARD_BAND_NS` / `P_COMMIT_TIME_NS`**: Slot timing in nanoseconds.
-- **`P_LOG_ITEM_LEN`**: Log item payload length (bytes), default `40`.
-- **`P_NODE_MAC_ADDR`**: Source MAC address for consensus TX.
-- **`P_NODE_ID_WIDTH`** / **`P_KV_WIDTH`**: Field widths for node ID and knowledge vector.
-- **`P_HDR_SLOT_ID_OFFSET` / `P_HDR_NODE_ID_OFFSET` / `P_HDR_KV_OFFSET` / `P_HDR_PAYLOAD_OFFSET`**: Header layout byte offsets.
-- **`P_DEST_MAC_0..4` / `P_BROADCAST_MAC`**: Destination MAC lookup entries and broadcast MAC.
+- [`utils/system_input/examples/moe_model_8node_split/system_input_bundle.json`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/utils/system_input/examples/moe_model_8node_split/system_input_bundle.json)
 
-### Node / TX / RX / Core Parameters (propagated via `consensus_node`)
-- **`P_NODE_ID` / `P_NODE_COUNT`**: Cluster configuration.
-- **`P_ETHERNET_TYPE`**: Consensus EtherType (wired from wrapper by default).
-- **`P_NODE_ID_WIDTH` / `P_KV_WIDTH`**: Field widths.
-- **Header Offsets**: `P_HDR_ETHERTYPE_OFFSET`, `P_HDR_SLOT_ID_OFFSET`, `P_HDR_NODE_ID_OFFSET`, `P_HDR_KV_OFFSET`, `P_HDR_PAYLOAD_OFFSET`.
-- **MAC Table**: `P_DEST_MAC_0..4`, `P_BROADCAST_MAC`.
-- **`P_LOG_ITEM_LEN`**: Payload length; RX/TX use this to size fields and endian swap.
-- **Core Quorum**: `P_CONSENSUS_QUORUM` (default majority) and derived counter widths.
+This is useful for quick walkthroughs and smaller checks.
 
-### Scheduler Parameters
-- **`P_TX_NODE_SPACING_NS`**: Per-node TX start spacing (default `200 ns`).
-- **`P_SLOT_DURATION_NS` / `P_GUARD_NS` / `P_COMMIT_DURATION_NS`**: Slot timing.
+### Full Mixtral + consensus example
 
-### PTP & Time Alignment
-- PTP ToD (96-bit) is mapped to a 64-bit nanoseconds value for slot alignment.
-- Wrapper checks `PTP_TS_WIDTH` is 96; if you use a different format, add a mapper.
+- [`utils/system_input/examples/mixtral_full_inference_consensus_split/system_input_bundle.json`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/utils/system_input/examples/mixtral_full_inference_consensus_split/system_input_bundle.json)
 
-## Simulation
+This is the main end-to-end example for the current system design:
 
-The testbench under [tb/mqnic_sync_dcn](tb/mqnic_core_sync_dcn) provides a PCIe/AXI-based simulation environment and Python tests for functional validation. Build artifacts and waves are also placed there during simulation.
+- Mixtral 8x7B-inspired MoE inference
+- 32 transformer layers
+- topology-derived OCS epoch timing
+- 128 consensus rounds on EPS
 
-This section describes the simulation environment used to validate protocol correctness with controlled network assumptions.
+## Quickstart
 
-### Why we simulate this way
+Prepare a full workspace from the active full example:
 
-A synchronous consensus protocol is sensitive to:
-- bounded delay (Δ)
-- slot boundaries and phase alignment
-- message ordering, duplication, and loss
-- “late” messages arriving outside the intended slot
+```bash
+python3 /path/to/corundum/fpga/app/sync_dcn/utils/experiment_flow/sync_dcn_prepare_experiment.py \
+  --force \
+  -o /tmp/sync_dcn_eval \
+  /path/to/corundum/fpga/app/sync_dcn/utils/system_input/examples/mixtral_full_inference_consensus_split/system_input_bundle.json
+```
 
-A pure MAC loopback can hide these issues by collapsing the network model into a trivial self-loop. Instead, we use:
-1. Hardware DUT: the real Corundum + consensus app
-2. Software DUTs: reference nodes executing the same protocol logic (or a simplified model)
-3. Switch/Network Simulator: a synchronous network scheduler that enforces Δ and slot semantics
+Inspect the generated artifact summary:
 
+```bash
+jq '.summary' /tmp/sync_dcn_eval/results/manifest.json
+```
 
-### Hardware DUT
+Dry-run one formal processor artifact:
 
-Hardware DUT = mqnic_core_pcie_us (Corundum’s full PCIe NIC top-level), including:
+```bash
+python3 /path/to/corundum/fpga/app/sync_dcn/utils/host_control_plane/sync_dcn_program.py \
+  --dry-run --target-type processor --node-id 0 \
+  /tmp/sync_dcn_eval/results/manifest.json
+```
 
-- PCIe endpoint model (via cocotbext-pcie RootComplex + UltraScale+ device model)
-- MAC model(s) (cocotbext-eth EthMac)
-- Your integrated app block (mqnic_app_block_sync_dcn.v)
+Dry-run one formal NIC artifact:
 
-Initialization follows Corundum’s reference TB, including:
-- clocks/resets
-- PCIe enumeration
-- driver init (mqnic.Driver)
-- link status tie-offs
-- optional loopback helpers (for non-consensus baseline tests)
+```bash
+python3 /path/to/corundum/fpga/app/sync_dcn/utils/host_control_plane/sync_dcn_program.py \
+  --dry-run --target-type nic --node-id 0 \
+  /tmp/sync_dcn_eval/results/manifest.json
+```
 
-Reference: test_mqnic_sync_dcn.py (based on Corundum’s test_mqnic_core_pcie_us.py).
+## Active Hardware/ABI State
 
-### Software DUTs (2 nodes)
+The current hardware programming model uses:
 
-We model two peer nodes in Python:
-- Software Node 1
-- Software Node 2
+- TX execution table
+- RX execution table
+- AI trace table
 
-Each software node:
-1. Receives consensus frames from the network simulator.
-2. Runs protocol logic (full protocol or a reference model).
-3. Emits response frames (vote/echo/commit/etc.) back to the network simulator.
+The active RTL now includes:
 
-Key design goals:
-1. Deterministic behavior (seeded randomness)
-2. Explicit state visibility (for debugging and assertions)
-3. Ability to inject adversarial behaviors (crash-stop, slow node, inconsistent proposals)
+- split TX/RX schedule execution
+- split TX/RX app-layer control bundles
+- split TX/RX control inputs for `ai_trace_replay`
 
-### Switch / Synchronous Network Simulator
+The local datapath remains shared, so TX/RX scheduling is more accurate than
+in the old single-table model, but the prototype still stops short of claiming
+fully independent local EPS/OCS egress.
 
-The “switch simulator” is a network scheduler coroutine that mediates traffic between nodes:
-- Collect frames from HW MAC TX: tb.port_mac[0].tx.recv()
-- Deliver to SW nodes with controlled timing: 
-  1. delay model: delay ∈ [0, Δ] (+ optional jitter)
-  2. policies: reorder/duplicate/drop
--	Collect SW node responses and deliver to HW MAC RX: tb.port_mac[0].rx.send(EthMacFrame(...))
+## Verification
 
-Crucially, the simulator can enforce slot semantics:
-- Deliver messages only within the slot window they belong to.
-- Delay messages into the next slot to test “late message” handling.
-- Drop messages that violate Δ to test safe failure behavior.
+The active sign-off boundary is:
+
+- [`tb/sync_dcn_subsystem/README.md`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/tb/sync_dcn_subsystem/README.md)
+- [`tb/sync_dcn_subsystem/test_sync_dcn_subsystem.py`](/Users/mayuke/Project/OpticalDCN/infra/nic_fpga/corundum/fpga/app/sync_dcn/tb/sync_dcn_subsystem/test_sync_dcn_subsystem.py)
+
+Representative tests:
+
+- `test_compiled_program_lifecycle_end_to_end`
+- `test_compiled_consensus_round_end_to_end`
+- `test_consensus_quorum_fail_then_clear_halt_and_recover`
+
+In addition to cocotb, the repository is routinely checked through:
+
+- `py_compile` for the active Python toolchain
+- host-side dry-run programming over formal artifacts
+- direct Verilog compilation of the active subsystem
+
+## Current Limitations
+
+- The formal architecture is cleaner than the compatibility path; do not use
+  `compat/prototype_runtime` as the primary mental model for the current
+  design.
+- OCS epoch construction is still based on greedy matching rather than a full
+  Birkhoff--von Neumann decomposition.
+- Consensus handling is more conservative than the final target architecture.
+- The local datapath is still shared even though the formal schedule model is
+  split into TX and RX channels.

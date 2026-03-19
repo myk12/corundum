@@ -620,9 +620,6 @@ initial begin
     end
 end
 
-//==============================================================================
-//                        Host control and status registers
-//==============================================================================
 /*
  * AXI-Lite slave interface (control from host)
  */
@@ -657,155 +654,79 @@ end
 //    .s_axil_rready(s_axil_app_ctrl_rready)
 //);
 
-//--------------------------------------------
-// V1 register map
-//--------------------------------------------
-// 32-bit registers, address aligned
-// 0x0000: ID           RO
-// 0x0004: VERSION      RO
-// 0x0008: CTRL         RW : bit0 enable app, bit1 reset app
-// 0x000C: ETHERTYPE    RW : Ethernet type for raw traffic (default 0x1234)
-// 0x0010: STATUS       RO : bit0 app enabled, bit1 app in reset
-// 0x0020: CNT_RX_HIT   RO : count of packets matching filter rules
-// 0x0024: CNT_RX_PASS  RO : count of packets not matching filter rules
-// 0x0028: CNT_TX_HIT   RO : count of packets matching filter rules
-// 0x002C: CNT_TX_PASS  RO : count of packets not matching filter rules
-// 0x0030: CNT_ERR      RO : count of DMA errors
-// 0x0034: CNT_CLEAR    RW : write 1 to clear all counters
-//--------------------------------------------
-
-localparam  [31:0] REG_ID_VAL        = 32'h434E534E;
-localparam  [31:0] REG_VERSION_VAL   = 32'h0001_0000;
-
-reg [31:0] reg_ctrl = 1'b0;
-reg reg_ctrl_enable = 1'b0;
-reg reg_ctrl_reset  = 1'b0;
-reg [15:0] reg_ctrl_ethertype = 16'hAE86; // default to IEEE 802.3 Ethernet type for raw traffic
-
-// counters
-reg [31:0] reg_cnt_rx_hit = 0;
-reg [31:0] reg_cnt_rx_pass = 0;
-reg [31:0] reg_cnt_tx_inj = 0;
-reg [31:0] reg_cnt_err = 0;
-reg cnt_clear_r = 1'b0;
-
-// interface registers
-reg [AXIL_APP_CTRL_ADDR_WIDTH-1:0]         reg_wr_addr;
-reg [AXIL_APP_CTRL_DATA_WIDTH-1:0]         reg_wr_data;
-reg [AXIL_APP_CTRL_STRB_WIDTH-1:0]         reg_wr_strb;
-reg                                        reg_wr_en;
-//reg                                        reg_wr_wait;
-reg                                        reg_wr_ack;
-
-reg [AXIL_APP_CTRL_ADDR_WIDTH-1:0]         reg_rd_addr;
-reg [AXIL_APP_CTRL_DATA_WIDTH-1:0]         reg_rd_data;
-reg                                        reg_rd_en;
-//reg                                        reg_rd_wait;
-reg                                        reg_rd_ack;
-
-// Instantiate register interface
-axil_reg_if #(
-    .ADDR_WIDTH(AXIL_APP_CTRL_ADDR_WIDTH),
-    .DATA_WIDTH(AXIL_APP_CTRL_DATA_WIDTH),
-    .STRB_WIDTH(AXIL_APP_CTRL_STRB_WIDTH),
-    .TIMEOUT(0)
+sync_dcn_subsystem #(
+    .PTP_TS_WIDTH(PTP_TS_WIDTH),
+    .P_NODE_ID(P_NODE_ID),
+    .PORTS_PER_IF(PORTS_PER_IF),
+    .TX_TAG_WIDTH(TX_TAG_WIDTH),
+    .AXIL_APP_CTRL_DATA_WIDTH(AXIL_APP_CTRL_DATA_WIDTH),
+    .AXIL_APP_CTRL_ADDR_WIDTH(AXIL_APP_CTRL_ADDR_WIDTH),
+    .AXIL_APP_CTRL_STRB_WIDTH(AXIL_APP_CTRL_STRB_WIDTH),
+    .AXIS_IF_DATA_WIDTH(AXIS_IF_DATA_WIDTH),
+    .AXIS_IF_KEEP_WIDTH(AXIS_IF_KEEP_WIDTH),
+    .AXIS_IF_TX_ID_WIDTH(AXIS_IF_TX_ID_WIDTH),
+    .AXIS_IF_RX_ID_WIDTH(AXIS_IF_RX_ID_WIDTH),
+    .AXIS_IF_TX_DEST_WIDTH(AXIS_IF_TX_DEST_WIDTH),
+    .AXIS_IF_RX_DEST_WIDTH(AXIS_IF_RX_DEST_WIDTH),
+    .AXIS_IF_TX_USER_WIDTH(AXIS_IF_TX_USER_WIDTH),
+    .AXIS_IF_RX_USER_WIDTH(AXIS_IF_RX_USER_WIDTH)
 )
-axil_reg_if_inst (
+sync_dcn_subsystem_inst (
     .clk(clk),
     .rst(rst),
-
-    .s_axil_awaddr(s_axil_app_ctrl_awaddr),
-    .s_axil_awprot(s_axil_app_ctrl_awprot),
-    .s_axil_awvalid(s_axil_app_ctrl_awvalid),
-    .s_axil_awready(s_axil_app_ctrl_awready),
-    .s_axil_wdata(s_axil_app_ctrl_wdata),
-    .s_axil_wstrb(s_axil_app_ctrl_wstrb),
-    .s_axil_wvalid(s_axil_app_ctrl_wvalid),
-    .s_axil_wready(s_axil_app_ctrl_wready),
-    .s_axil_bresp(s_axil_app_ctrl_bresp),
-    .s_axil_bvalid(s_axil_app_ctrl_bvalid),
-    .s_axil_bready(s_axil_app_ctrl_bready),
-    .s_axil_araddr(s_axil_app_ctrl_araddr),
-    .s_axil_arprot(s_axil_app_ctrl_arprot),
-    .s_axil_arvalid(s_axil_app_ctrl_arvalid),
-    .s_axil_arready(s_axil_app_ctrl_arready),
-    .s_axil_rdata(s_axil_app_ctrl_rdata),
-    .s_axil_rresp(s_axil_app_ctrl_rresp),
-    .s_axil_rvalid(s_axil_app_ctrl_rvalid),
-    .s_axil_rready(s_axil_app_ctrl_rready),
-
-    .reg_wr_addr(reg_wr_addr),
-    .reg_wr_data(reg_wr_data),
-    .reg_wr_strb(reg_wr_strb),
-    .reg_wr_en(reg_wr_en),
-    .reg_wr_wait(1'b0),     // no wait states
-    .reg_wr_ack(reg_wr_ack),      // always acknowledge writes immediately
-
-    .reg_rd_addr(reg_rd_addr),
-    .reg_rd_data(reg_rd_data),
-    .reg_rd_en(reg_rd_en),
-    .reg_rd_wait(1'b0),    // no wait states, but data is always ready (combinational read)
-    .reg_rd_ack(reg_rd_ack)      // always acknowledge reads immediately
+    .s_axil_app_ctrl_awaddr(s_axil_app_ctrl_awaddr),
+    .s_axil_app_ctrl_awprot(s_axil_app_ctrl_awprot),
+    .s_axil_app_ctrl_awvalid(s_axil_app_ctrl_awvalid),
+    .s_axil_app_ctrl_awready(s_axil_app_ctrl_awready),
+    .s_axil_app_ctrl_wdata(s_axil_app_ctrl_wdata),
+    .s_axil_app_ctrl_wstrb(s_axil_app_ctrl_wstrb),
+    .s_axil_app_ctrl_wvalid(s_axil_app_ctrl_wvalid),
+    .s_axil_app_ctrl_wready(s_axil_app_ctrl_wready),
+    .s_axil_app_ctrl_bresp(s_axil_app_ctrl_bresp),
+    .s_axil_app_ctrl_bvalid(s_axil_app_ctrl_bvalid),
+    .s_axil_app_ctrl_bready(s_axil_app_ctrl_bready),
+    .s_axil_app_ctrl_araddr(s_axil_app_ctrl_araddr),
+    .s_axil_app_ctrl_arprot(s_axil_app_ctrl_arprot),
+    .s_axil_app_ctrl_arvalid(s_axil_app_ctrl_arvalid),
+    .s_axil_app_ctrl_arready(s_axil_app_ctrl_arready),
+    .s_axil_app_ctrl_rdata(s_axil_app_ctrl_rdata),
+    .s_axil_app_ctrl_rresp(s_axil_app_ctrl_rresp),
+    .s_axil_app_ctrl_rvalid(s_axil_app_ctrl_rvalid),
+    .s_axil_app_ctrl_rready(s_axil_app_ctrl_rready),
+    .ptp_sync_ts_tod(ptp_sync_ts_tod),
+    .s_axis_if_tx_tdata(s_axis_if_tx_tdata),
+    .s_axis_if_tx_tkeep(s_axis_if_tx_tkeep),
+    .s_axis_if_tx_tvalid(s_axis_if_tx_tvalid),
+    .s_axis_if_tx_tready(s_axis_if_tx_tready),
+    .s_axis_if_tx_tlast(s_axis_if_tx_tlast),
+    .s_axis_if_tx_tid(s_axis_if_tx_tid),
+    .s_axis_if_tx_tdest(s_axis_if_tx_tdest),
+    .s_axis_if_tx_tuser(s_axis_if_tx_tuser),
+    .m_axis_if_tx_tdata(m_axis_if_tx_tdata),
+    .m_axis_if_tx_tkeep(m_axis_if_tx_tkeep),
+    .m_axis_if_tx_tvalid(m_axis_if_tx_tvalid),
+    .m_axis_if_tx_tready(m_axis_if_tx_tready),
+    .m_axis_if_tx_tlast(m_axis_if_tx_tlast),
+    .m_axis_if_tx_tid(m_axis_if_tx_tid),
+    .m_axis_if_tx_tdest(m_axis_if_tx_tdest),
+    .m_axis_if_tx_tuser(m_axis_if_tx_tuser),
+    .s_axis_if_rx_tdata(s_axis_if_rx_tdata),
+    .s_axis_if_rx_tkeep(s_axis_if_rx_tkeep),
+    .s_axis_if_rx_tvalid(s_axis_if_rx_tvalid),
+    .s_axis_if_rx_tready(s_axis_if_rx_tready),
+    .s_axis_if_rx_tlast(s_axis_if_rx_tlast),
+    .s_axis_if_rx_tid(s_axis_if_rx_tid),
+    .s_axis_if_rx_tdest(s_axis_if_rx_tdest),
+    .s_axis_if_rx_tuser(s_axis_if_rx_tuser),
+    .m_axis_if_rx_tdata(m_axis_if_rx_tdata),
+    .m_axis_if_rx_tkeep(m_axis_if_rx_tkeep),
+    .m_axis_if_rx_tvalid(m_axis_if_rx_tvalid),
+    .m_axis_if_rx_tready(m_axis_if_rx_tready),
+    .m_axis_if_rx_tlast(m_axis_if_rx_tlast),
+    .m_axis_if_rx_tid(m_axis_if_rx_tid),
+    .m_axis_if_rx_tdest(m_axis_if_rx_tdest),
+    .m_axis_if_rx_tuser(m_axis_if_rx_tuser)
 );
-
-// Register write logic
-always @(posedge clk) begin
-    if (rst) begin
-        reg_ctrl_enable <= 1'b0;
-        reg_ctrl_ethertype <= 16'hAE86;
-        cnt_clear_r <= 1'b0;
-    end else begin
-        cnt_clear_r <= 1'b0;
-        reg_ctrl_enable <= reg_ctrl[0];
-        reg_ctrl_reset <= reg_ctrl[1];
-
-        if (reg_wr_en) begin
-            case ({reg_wr_addr[11:2], 2'b00}) // word aligned
-                12'h008: reg_ctrl <= reg_wr_data;
-                12'h00C: reg_ctrl_ethertype <= reg_wr_data[15:0];
-                12'h034: cnt_clear_r <= reg_wr_data[0];
-                default: ;
-            endcase
-
-            reg_wr_ack <= 1'b1; // acknowledge write immediately
-        end else begin
-            reg_wr_ack <= 1'b0;
-        end
-
-        if (cnt_clear_r) begin
-            reg_cnt_rx_hit <= 0;
-            reg_cnt_rx_pass <= 0;
-            reg_cnt_tx_inj <= 0;
-            reg_cnt_err <= 0;
-        end
-    end
-end
-
-// Register read logic
-always @(posedge clk) begin
-    if (rst) begin
-        reg_rd_data <= 0;
-    end else begin
-        if (reg_rd_en) begin
-            case ({reg_rd_addr[11:2], 2'b00}) // word aligned
-                12'h000: reg_rd_data <= REG_ID_VAL;
-                12'h004: reg_rd_data <= REG_VERSION_VAL;
-                12'h008: reg_rd_data <= reg_ctrl;
-                12'h00C: reg_rd_data <= {16'b0, reg_ctrl_ethertype};
-                12'h010: reg_rd_data <= {30'b0, reg_ctrl_enable, reg_ctrl_reset};
-                12'h020: reg_rd_data <= reg_cnt_rx_hit;
-                12'h024: reg_rd_data <= reg_cnt_rx_pass;
-                12'h028: reg_rd_data <= reg_cnt_tx_inj;
-                12'h02C: reg_rd_data <= 0; //reg_cnt_tx_pass;
-                12'h030: reg_rd_data <= reg_cnt_err;
-                default: reg_rd_data <= 0;
-            endcase
-            reg_rd_ack <= 1'b1; // acknowledge read immediately
-        end else begin
-            reg_rd_ack <= 1'b0;
-        end
-    end
-end
 
 /*
  * AXI-Lite master interface (control to NIC)
@@ -914,148 +835,10 @@ assign s_axis_sync_rx_tready = m_axis_sync_rx_tready;
 assign m_axis_sync_rx_tlast = s_axis_sync_rx_tlast;
 assign m_axis_sync_rx_tuser = s_axis_sync_rx_tuser;
 
-/*
- * Ethernet (internal at interface module)
- *
- * IMPORTANT: Use a single driver scheme. Either direct connect OR consensus wrapper.
- * Never both, otherwise ready/valid will be multiply-driven and resolve to X.
- */
-
-// Toggle consensus integration here
-localparam CONSENSUS_WRAPPER_ENABLE = 1'b1;  // set to 1 to enable wrapper integration
-wire enable_consensus = 1'b0;                // runtime enable into wrapper (can be tied to register later)
-
-// Intermediate nets between IF and application processing
-wire [AXIS_IF_DATA_WIDTH-1:0]           if_tx_tdata_int;
-wire [AXIS_IF_KEEP_WIDTH-1:0]           if_tx_tkeep_int;
-wire                                    if_tx_tvalid_int;
-wire                                    if_tx_tlast_int;
-wire [AXIS_IF_TX_ID_WIDTH-1:0]          if_tx_tid_int;
-wire [AXIS_IF_TX_DEST_WIDTH-1:0]        if_tx_tdest_int;
-wire [AXIS_IF_TX_USER_WIDTH-1:0]        if_tx_tuser_int;
-wire                                    if_tx_tready_int;
-
-wire [AXIS_IF_DATA_WIDTH-1:0]           if_rx_tdata_int;
-wire [AXIS_IF_KEEP_WIDTH-1:0]           if_rx_tkeep_int;
-wire                                    if_rx_tvalid_int;
-wire                                    if_rx_tlast_int;
-wire [AXIS_IF_RX_ID_WIDTH-1:0]          if_rx_tid_int;
-wire [AXIS_IF_RX_DEST_WIDTH-1:0]        if_rx_tdest_int;
-wire [AXIS_IF_RX_USER_WIDTH-1:0]        if_rx_tuser_int;
-wire                                    if_rx_tready_int;
-
-// TX completion sideband stays direct
 assign m_axis_if_tx_cpl_ts      = s_axis_if_tx_cpl_ts;
 assign m_axis_if_tx_cpl_tag     = s_axis_if_tx_cpl_tag;
 assign m_axis_if_tx_cpl_valid   = s_axis_if_tx_cpl_valid;
 assign s_axis_if_tx_cpl_ready   = m_axis_if_tx_cpl_ready;
-
-// Default direct connect mapping into intermediate nets
-assign if_tx_tdata_int  = s_axis_if_tx_tdata;
-assign if_tx_tkeep_int  = s_axis_if_tx_tkeep;
-assign if_tx_tvalid_int = s_axis_if_tx_tvalid;
-assign if_tx_tlast_int  = s_axis_if_tx_tlast;
-assign if_tx_tid_int    = s_axis_if_tx_tid;
-assign if_tx_tdest_int  = s_axis_if_tx_tdest;
-assign if_tx_tuser_int  = s_axis_if_tx_tuser;
-assign s_axis_if_tx_tready = if_tx_tready_int;
-
-// Intermediate -> IF outputs (set below via generate)
-
-generate
-if (!CONSENSUS_WRAPPER_ENABLE) begin : gen_if_bypass
-    // Pure bypass: IF in -> IF out
-    assign m_axis_if_tx_tdata  = if_tx_tdata_int;
-    assign m_axis_if_tx_tkeep  = if_tx_tkeep_int;
-    assign m_axis_if_tx_tvalid = if_tx_tvalid_int;
-    assign m_axis_if_tx_tlast  = if_tx_tlast_int;
-    assign m_axis_if_tx_tid    = if_tx_tid_int;
-    assign m_axis_if_tx_tdest  = if_tx_tdest_int;
-    assign m_axis_if_tx_tuser  = if_tx_tuser_int;
-    assign if_tx_tready_int    = m_axis_if_tx_tready;
-
-    assign m_axis_if_rx_tdata  = s_axis_if_rx_tdata;
-    assign m_axis_if_rx_tkeep  = s_axis_if_rx_tkeep;
-    assign m_axis_if_rx_tvalid = s_axis_if_rx_tvalid;
-    assign m_axis_if_rx_tlast  = s_axis_if_rx_tlast;
-    assign m_axis_if_rx_tid    = s_axis_if_rx_tid;
-    assign m_axis_if_rx_tdest  = s_axis_if_rx_tdest;
-    assign m_axis_if_rx_tuser  = s_axis_if_rx_tuser;
-    assign s_axis_if_rx_tready = m_axis_if_rx_tready;
-end else begin : gen_if_consensus
-    // Consensus wrapper integration
-    // Wrapper only handles data/keep/valid/last/user. ID/DEST pass through unchanged.
-
-    consensus_app_wrapper #(
-        .P_NODE_ID(P_NODE_ID),
-        .PTP_TS_WIDTH(PTP_TS_WIDTH),
-
-        // AXIS interface parameters
-        .AXIS_DATA_WIDTH(AXIS_IF_DATA_WIDTH),
-        .AXIS_KEEP_WIDTH(AXIS_IF_KEEP_WIDTH),
-        .AXIS_TX_USER_WIDTH(AXIS_IF_TX_USER_WIDTH),
-        .AXIS_RX_USER_WIDTH(AXIS_IF_RX_USER_WIDTH),
-        .AXIS_USER_WIDTH(AXIS_IF_TX_USER_WIDTH),
-        .TX_TAG_WIDTH(TX_TAG_WIDTH)
-    ) consensus_app_wrapper_inst (
-        .clk(clk),
-        .rst(rst),
-
-        // Control signals
-        .i_enable(reg_ctrl_enable),
-
-        // PTP inputs for timestamping
-        .ptp_clk(ptp_clk),
-        .ptp_rst(ptp_rst),
-        .ptp_sync_ts_tod(ptp_sync_ts_tod),
-
-        // --------------------------------------------------------------------
-        // TX Path: (Host DMA -> APP Wrapper -> MAC)
-        // --------------------------------------------------------------------
-        // AXI Stream from Host DMA to APP Wrapper (data/keep/valid/last/user)
-        .s_axis_dma_tx_tdata (if_tx_tdata_int),
-        .s_axis_dma_tx_tkeep (if_tx_tkeep_int),
-        .s_axis_dma_tx_tvalid(if_tx_tvalid_int),
-        .s_axis_dma_tx_tlast (if_tx_tlast_int),
-        .s_axis_dma_tx_tuser (if_tx_tuser_int),
-        .s_axis_dma_tx_tready(if_tx_tready_int),
-
-        // AXI Stream from APP Wrapper to MAC (data/keep/valid/last/user)
-        .m_axis_mac_tx_tdata (m_axis_if_tx_tdata),
-        .m_axis_mac_tx_tkeep (m_axis_if_tx_tkeep),
-        .m_axis_mac_tx_tvalid(m_axis_if_tx_tvalid),
-        .m_axis_mac_tx_tlast (m_axis_if_tx_tlast),
-        .m_axis_mac_tx_tuser (m_axis_if_tx_tuser),
-        .m_axis_mac_tx_tready(m_axis_if_tx_tready),
-
-        // --------------------------------------------------------------------
-        // RX Path: (MAC -> APP Wrapper -> Host DMA)
-        // --------------------------------------------------------------------
-        // AXI Stream from MAC to APP Wrapper (data/keep/valid/last/user)   
-        .s_axis_mac_rx_tdata (s_axis_if_rx_tdata),
-        .s_axis_mac_rx_tkeep (s_axis_if_rx_tkeep),
-        .s_axis_mac_rx_tvalid(s_axis_if_rx_tvalid),
-        .s_axis_mac_rx_tlast (s_axis_if_rx_tlast),
-        .s_axis_mac_rx_tuser (s_axis_if_rx_tuser),
-        .s_axis_mac_rx_tready(s_axis_if_rx_tready),
-
-        // AXI Stream from APP Wrapper to Host DMA (data/keep/valid/last/user)
-        .m_axis_dma_rx_tdata (m_axis_if_rx_tdata),
-        .m_axis_dma_rx_tkeep (m_axis_if_rx_tkeep),
-        .m_axis_dma_rx_tvalid(m_axis_if_rx_tvalid),
-        .m_axis_dma_rx_tlast (m_axis_if_rx_tlast),
-        .m_axis_dma_rx_tuser (m_axis_if_rx_tuser),
-        .m_axis_dma_rx_tready(m_axis_if_rx_tready)
-    );
-
-    // ID/DEST: pass-through
-    assign m_axis_if_tx_tid   = if_tx_tid_int;
-    assign m_axis_if_tx_tdest = if_tx_tdest_int;
-
-    assign m_axis_if_rx_tid   = s_axis_if_rx_tid;
-    assign m_axis_if_rx_tdest = s_axis_if_rx_tdest;
-end
-endgenerate
 
 /*
  * DDR

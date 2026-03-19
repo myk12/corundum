@@ -18,7 +18,7 @@ module consensus_tx #(
 
     // Header byte offsets (from start of Ethernet frame)
     parameter integer   P_HDR_ETHERTYPE_OFFSET = 12,
-    parameter integer   P_HDR_SLOT_ID_OFFSET   = 14,
+    parameter integer   P_HDR_WINDOW_ID_OFFSET = 14,
     parameter integer   P_HDR_NODE_ID_OFFSET   = 22,
     parameter integer   P_HDR_KV_OFFSET        = 23,
     parameter integer   P_HDR_PAYLOAD_OFFSET   = 24,
@@ -35,10 +35,10 @@ module consensus_tx #(
     input wire                              clk,
     input wire                              rst_n,
 
-    // Timing Signals from Scheduler
+    // Timing signals from the shared schedule executor
     input wire                              i_timing_tx_allowed,
-    input wire                              i_timing_new_slot_pulse,
-    input wire [63:0]                       i_timing_current_slot_id,
+    input wire                              i_timing_window_open_pulse,
+    input wire [63:0]                       i_timing_current_window_id,
 
     // Data Inputs
     input wire [P_NODE_COUNT-1:0]           i_core_knowledge_vec,
@@ -113,7 +113,7 @@ end
 //   - Source MAC (48 bits)
 //   - Ethertype (16 bits)
 // [ Consensus Header ]
-//  - Slot ID (64 bits)
+//  - Window ID (64 bits)
 //  - Node ID (8 bits)
 //  - Knowledge Vector (8 bits)
 //  - Payload (40 bytes)
@@ -140,7 +140,7 @@ always @(*) begin
     v_packet_flit[P_HDR_ETHERTYPE_OFFSET*8 +: 16] = to_big_endian_16(P_ETHERNET_TYPE);
 
     // ------- Consensus Header -------
-    v_packet_flit[P_HDR_SLOT_ID_OFFSET*8 +: 64]  = to_big_endian_64(i_timing_current_slot_id);
+    v_packet_flit[P_HDR_WINDOW_ID_OFFSET*8 +: 64]  = to_big_endian_64(i_timing_current_window_id);
     v_packet_flit[P_HDR_NODE_ID_OFFSET*8 +: P_NODE_ID_WIDTH] = P_NODE_ID[P_NODE_ID_WIDTH-1:0];
     v_packet_flit[P_HDR_KV_OFFSET*8 +: P_KV_WIDTH]   = i_core_knowledge_vec;
 
@@ -172,7 +172,7 @@ always @(posedge clk) begin
 
                 r_target_node_id <= 0;
 
-                if (i_timing_new_slot_pulse) begin
+                if (i_timing_window_open_pulse) begin
                     // Start broadcasting to all nodes
                     state <= S_WAITING;
                 end
