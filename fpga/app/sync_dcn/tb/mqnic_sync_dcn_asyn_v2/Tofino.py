@@ -46,15 +46,13 @@ class CocotbQueue:
     def qsize(self):
         return len(self._queue)
 def parse_packet(pkt):
-        # 提取 Raw 层数据
-        raw_data = bytes(pkt[Raw])
-        
-        # 根据封装时的格式 "!QBBB" (11字节) 进行解包
-        header_size = 11
-        header_data = raw_data[:header_size]
-        
-        slot_id, node_id, ack_vec, target_node_id = struct.unpack("!QBBB", header_data)
-        return target_node_id
+    raw_data = bytes(pkt[Raw])
+    header_size = 13
+    header_data = raw_data[:header_size]
+
+    slot_id, node_id, ack_vec, target_node_id, frag_id, total_frags = \
+        struct.unpack("!QBBBBB", header_data)
+    return target_node_id
 class Tofino:
     def __init__(self, port_set, spine, router_table,leaf_id):
         self.port_set = port_set
@@ -124,8 +122,9 @@ class Tofino:
             if out_port in self.port_set:
                 self.add_queue_out(pkt, out_port)
             else:
+                assert True, f"Packet with target node ID {parse_packet(pkt)} at Spine {self.spine.Spine_id} Leaf {self.leaf_id} needs to be transferred to another leaf for output port {out_port}"
                 # 需要通过另一个 leaf 转发,用start_soon异步调用transfer_inside_spine
-                cocotb.start_soon(self.spine.transfer_inside_spine(pkt, self.leaf_id, out_port))
+                #cocotb.start_soon(self.spine.transfer_inside_spine(pkt, self.leaf_id, out_port))
     async def _port_worker_out(self, port):
         """
         消费者：每个端口独立的硬件处理单元
@@ -144,7 +143,7 @@ class Tofino:
             self.current_buffer_usage -= pkt_size_bytes
             
             # 3. 调用下游接收函数 (假设 leaf 对象已绑定)
-            await self.spine.send_packet(pkt, port)
+            await self.spine.send_packet(pkt, port,self.leaf_id)
 
 
     def select_out_port(self, pkt):

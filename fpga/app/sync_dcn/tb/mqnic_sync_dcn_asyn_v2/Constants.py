@@ -1,6 +1,6 @@
 PROT_RATE_Gbps = 10 #Gbps
 HOP_DELAY_NS = 600   
-QUEUE_SIZE_BYTES = 64 * 1024 * 1024  # 64MB 转换为 Bytes
+QUEUE_SIZE_BYTES = 32 * 1024 * 1024  # 64MB 转换为 Bytes
 # --- MOE 模型参数 ---
 HIDDEN_DIM         = 4096   # 隐藏层维度
 BYTES_PER_ELEM     = 2      # BF16
@@ -11,6 +11,7 @@ PAYLOAD_BYTES_PER_TARGET = TOKENS_PER_TARGET * HIDDEN_DIM * BYTES_PER_ELEM
 SERIALIZATION_NS = int(PAYLOAD_BYTES_PER_TARGET * 8 / PROT_RATE_Gbps)  # 41943ns
 RTT_NS = 2 * (SERIALIZATION_NS*6 + 4 * HOP_DELAY_NS)                     # ~88686ns
 TIMEOUT_NS = 3 * RTT_NS  
+print(f"RTT: {RTT_NS / 1000000} ms, Timeout: {TIMEOUT_NS} ns")
 spine3_leaf1_routing_table = {
     1: 17, 2: 17,  # 目标 FPGA1, FPGA2 -> 走 Port 17 
     3: 18, 4: 18,  # 目标 FPGA3, FPGA4 -> 走 Port 18 
@@ -29,29 +30,29 @@ spine3_leaf2_routing_table = {
 # Leaf 1 (Ports 1~4)
 spine1_leaf1_routing_table = {
     1: 2, 2: 4,                                  
-    3: 6, 4: 8, 5: [1, 3], 6: [1, 3],  
-    7: [3, 1], 8: [3, 1]
+    3: 1, 4: 3, 5: [1, 3], 7: [1, 3],  
+    6: [3, 1], 8: [3, 1]
 }
 
 # Leaf 2 (Ports 5~8)
 spine1_leaf2_routing_table = {
     3: 6, 4: 8,                                  
-    1: 2, 2: 4, 5: [5, 7], 6: [5, 7],  
-    7: [7, 5], 8: [7, 5]
+    1: 5, 2: 7, 5: [5, 7], 7: [5, 7],  
+    6: [7, 5], 8: [7, 5]
 }
 
 # Leaf 3 (Ports 9~12)
 spine2_leaf1_routing_table = {
     5: 10, 6: 12,                                      
-    1: [9, 11], 2: [9, 11], 3: [11, 9], 4: [11, 9],
-    7: 14, 8: 16
+    1: [9, 11], 3: [9, 11], 2: [11, 9], 4: [11, 9],
+    7: 9, 8: 11
 }
 
 # Leaf 4 (Ports 13~16)
 spine2_leaf2_routing_table = {
     7: 14, 8: 16,                                      
-    1: [13, 15], 2: [13, 15], 3: [15, 13], 4: [15, 13],
-    5: 10, 6: 12
+    1: [13, 15], 3: [13, 15], 2: [15, 13], 4: [15, 13],
+    5: 13, 6: 15
 }
 port_mapping = {
     1:17,3:21,5:18,7:22,9:19,11:23,13:20,15:24,

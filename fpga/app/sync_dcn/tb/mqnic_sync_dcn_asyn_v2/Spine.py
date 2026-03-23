@@ -35,16 +35,15 @@ class Spine:#tofino
         self.log = SimLog(f"cocotb.spine_{spine_id}")
         self.log.setLevel(logging.INFO)
     
-    def add_sw_node(self, sw_node, port=None):
-        self.sw_nodes.append({"node": sw_node, "port": port})
+    def add_sw_node(self, sw_node, port=None, leaf_id=None):
+        self.sw_nodes.append({"node": sw_node, "port": port, "leaf": leaf_id})
     def add_hw_dut(self, hw_dut, port=None):
         self.hw_dut = hw_dut
     def add_spine(self, spine):
         self.spines.append({"spine": spine})
-    
     async def receive_packet(self,pkt: Ether, in_port):
         await Timer(HOP_DELAY_NS, 'ns')  # Simulate hop delay for packet reception
-        self.log.info(f"Packet with target node ID {parse_packet(pkt)} received at Spine {self.Spine_id} on port {in_port}")
+        #self.log.info(f"Packet with target node ID {parse_packet(pkt)} received at Spine {self.Spine_id} on port {in_port}")
         self.receive_packet_for_queue(pkt, in_port)
     def receive_packet_for_queue(self, pkt: Ether, in_port):
         #1,检查in_port在哪一个leaf中
@@ -55,29 +54,29 @@ class Spine:#tofino
             return self.leaf2.add_queue_in(pkt, in_port)
         else:
             assert False, f"Input port {in_port} not found in any leaf switch of Spine {self.Spine_id}"
-    async def send_packet(self, pkt: Ether, out_port):
+    async def send_packet(self, pkt: Ether, out_port,leaf_id):
         receiver_id = parse_packet(pkt)
-        #检查out_port是否在leaf1,2中
-       
-        node = next((node for node in self.sw_nodes if node["node"].node_id == receiver_id), None)
+        #检查receiver_id是否在本spine的sw_node中,且leaf_id是否正确
+        node = next((node for node in self.sw_nodes if node["node"].node_id == receiver_id and node["leaf"] == leaf_id), None)
         if node is not None:
             assert node is not None, f"Target node ID {receiver_id} not found in sw_nodes of Spine {self.Spine_id} in port {out_port}"
             #打印日志
-            self.log.info(f"Packet with target node ID {receiver_id} sent to port {out_port} of Spine {self.Spine_id}")
+            #self.log.info(f"Packet with target node ID {receiver_id} sent to port {out_port} of Spine {self.Spine_id}")
             cocotb.start_soon(node["node"].recv_packet(pkt,out_port))  # Simulate packet reception at the target node
             return
         
         #读取mapping,找到out_port对应的in_port和spine
-        self.log.info(f"Packet with target node ID {receiver_id} sent to spine port {out_port} of Spine {self.Spine_id} in port {out_port}")
+        ##self.log.info(f"Packet with target node ID {receiver_id} sent to spine port {out_port} of Spine {self.Spine_id} in port {out_port}")
         in_port = port_mapping.get(out_port)
         target_spine = next((spine for spine in self.spines if in_port in spine["spine"].port_set), None)
-        assert target_spine is not None, f"Target spine with input port {in_port} not found in Spine {self.Spine_id}"
+        assert target_spine is not None, f"Target spine with input port {in_port} not found in Spine {self.Spine_id},out_port {out_port},leaf_id {leaf_id},receiver_id {receiver_id}"
         #启动协程
+        #self.log.info(f"Packet with target node ID {receiver_id} sent to Spine {self.Spine_id} for internal transfer to port {out_port} (in_port {in_port})")
         cocotb.start_soon(target_spine["spine"].receive_packet(pkt, in_port))  # Simulate packet reception at the target spine
         
     async def transfer_inside_spine(self, pkt: Ether, from_leaf_id: int,out_port: int):
         await Timer(HOP_DELAY_NS, 'ns')  # Simulate hop delay for internal transfer
-        self.log.info(f"Packet with target node ID {parse_packet(pkt)} transferred inside Spine {self.Spine_id} from leaf {from_leaf_id} to port {out_port}")
+        #self.log.info(f"Packet with target node ID {parse_packet(pkt)} transferred inside Spine {self.Spine_id} from leaf {from_leaf_id} to port {out_port}")
         if from_leaf_id == 1:
             self.leaf2.add_queue_out(pkt, out_port)
         else:

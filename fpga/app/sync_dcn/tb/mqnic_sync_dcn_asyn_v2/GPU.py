@@ -1,4 +1,5 @@
 import struct
+import math
 import enum
 import logging
 import cocotb
@@ -12,6 +13,15 @@ from Statics import MoeStats
 # --- 协议常量 ---
 ETHTYPE_CONSENSUS = 0xAE86  # ACK
 ETHTYPE_MOE_DATA  = 0xAE89  # MOE 数据包
+
+# --- 分片常量 ---
+TOTAL_FRAGMENTS = 128  # 固定分片数，可修改
+
+def compute_fragment_size() -> int:
+    """根据总 payload 和分片数计算每个分片的大小"""
+    return math.ceil(PAYLOAD_BYTES_PER_TARGET / TOTAL_FRAGMENTS)
+
+FRAGMENT_PAYLOAD_SIZE = compute_fragment_size()
 
 
 class MoePhase(enum.IntEnum):
@@ -34,21 +44,23 @@ class GpuNode:
         # --- 其余 7 个节点的 ID 列表 ---
         self.peer_ids = [i for i in range(1, 9) if i != node_id]
 
-        # --- 可靠传输状态（按 peer 分别维护） ---
-        # ACK 唤醒事件：每个 peer 一个
-        self.ack_events = {i: Event() for i in self.peer_ids}
+        # --- 可靠传输状态（按 peer × frag_id 维护） ---
+        self.ack_events: dict[int, dict[int, Event]] = {
+            pid: {fid: Event() for fid in range(TOTAL_FRAGMENTS)}
+            for pid in self.peer_ids
+        }
 
-        # 接收去重：记录已处理过的 (src, layer, phase) 三元组
+        self.current_sending_tag: dict[int, dict[int, tuple[int, int]]] = {
+            pid: {fid: (-1, -1) for fid in range(TOTAL_FRAGMENTS)}
+            for pid in self.peer_ids
+        }
+
+        # --- 接收侧：分片跟踪表 ---
+        self._rx_frag_tracker: dict[tuple[int, int, int], set[int]] = {}
         self.processed_set: set[tuple[int, int, int]] = set()
 
-        # 当前正在发送的 (layer_id, phase) —— 按目标节点索引
-        # 用于校验回来的 ACK 是否匹配当前发送任务
-        self.current_sending_tag: dict[int, tuple[int, int]] = {i: (-1, -1) for i in self.peer_ids}
-
         # --- 接收 barrier ---
-        # key = (layer_id, phase)，value = set of src_ids already received
         self._rx_sets: dict[tuple[int, int], set[int]] = {}
-        # 当某个 (layer_id, phase) 收齐 7 个 peer 时触发
         self._rx_barrier_events: dict[tuple[int, int], Event] = {}
 
         # --- 统计 ---
@@ -63,34 +75,33 @@ class GpuNode:
 
     @staticmethod
     def _encode_round(layer_id: int, phase: int) -> int:
-        """
-        将 (layer_id, phase) 编码为 64-bit round_id。
-        高 32 位 = layer_id，低 32 位 = phase。
-        这样 round_id 同时携带层号和阶段信息，ACK 可以精确匹配。
-        """
         return (layer_id << 32) | (phase & 0xFFFFFFFF)
 
     @staticmethod
     def _decode_round(round_id: int) -> tuple[int, int]:
-        """round_id -> (layer_id, phase)"""
         layer_id = (round_id >> 32) & 0xFFFFFFFF
         phase = round_id & 0xFFFFFFFF
         return layer_id, phase
 
     def _get_rx_barrier(self, layer_id: int, phase: int) -> Event:
-        """获取或创建某个 (layer, phase) 的接收 barrier event"""
         key = (layer_id, phase)
         if key not in self._rx_barrier_events:
             self._rx_barrier_events[key] = Event()
             self._rx_sets[key] = set()
         return self._rx_barrier_events[key]
 
-    def create_packet(self, target_node_id, ptype, round_id=0):
+    def create_packet(self, target_node_id, ptype, round_id=0,
+                      frag_id=0, total_frags=1):
         eth_header = Ether(src=self.node_mac, dst="ff:ff:ff:ff:ff:ff", type=ptype)
-        header = struct.pack("!QBBB", round_id, self.node_id, 0x01, target_node_id)
+        header = struct.pack("!QBBBBB",
+                             round_id, self.node_id, 0x01, target_node_id,
+                             frag_id, total_frags)
 
         if ptype == ETHTYPE_MOE_DATA:
-            payload = bytes(PAYLOAD_BYTES_PER_TARGET)
+            offset = frag_id * FRAGMENT_PAYLOAD_SIZE
+            remaining = PAYLOAD_BYTES_PER_TARGET - offset
+            this_frag_size = min(FRAGMENT_PAYLOAD_SIZE, remaining)
+            payload = bytes(this_frag_size)
         else:
             payload = b''
 
@@ -100,39 +111,61 @@ class GpuNode:
     #  接收路径
     # ----------------------------------------------------------------
     async def recv_packet(self, pkt: Ether, in_port: int):
-        """处理接收到的包：区分数据包和 ACK"""
-        assert self.port == in_port, f"Packet received on unexpected port {in_port} (expected {self.port})"
+        assert self.port == in_port, (
+            f"Packet received on unexpected port {in_port} "
+            f"(expected {self.port}), gpu {self.node_id}"
+        )
         raw_data = bytes(pkt[Raw])
-        round_id, src_id, ack_vec, target_id = struct.unpack("!QBBB", raw_data[:11])
+        round_id, src_id, ack_vec, target_id, frag_id, total_frags = \
+            struct.unpack("!QBBBBB", raw_data[:13])
         layer_id, phase = self._decode_round(round_id)
 
-        # 模拟硬件处理延迟
         await Timer(HOP_DELAY_NS, 'ns')
 
         # --- 情况 A: 收到数据包 ---
         if pkt.type == ETHTYPE_MOE_DATA:
             phase_name = MoePhase(phase).name
             self.log.debug(
-                f"RX DATA from Node {src_id} | Layer {layer_id} Phase {phase_name}"
+                f"RX DATA from Node {src_id} | Layer {layer_id} "
+                f"Phase {phase_name} frag {frag_id}/{total_frags}"
             )
 
-            # 1. 无论是否重复，都立即回传 ACK（发送方可能没收到上一次的 ACK）
-            ack_pkt = self.create_packet(src_id, ETHTYPE_CONSENSUS, round_id=round_id)
+            # 1. 无论是否重复，都回传该分片的 ACK
+            ack_pkt = self.create_packet(
+                src_id, ETHTYPE_CONSENSUS, round_id=round_id,
+                frag_id=frag_id, total_frags=total_frags
+            )
             cocotb.start_soon(self.network.receive_packet(ack_pkt, self.port))
 
-            # 2. 幂等性去重
+            # 2. 如果该 peer 的该轮次已经整体完成，跳过
             dedup_key = (src_id, layer_id, phase)
             if dedup_key in self.processed_set:
-                self.log.debug(
-                    f"Duplicate from Node {src_id} Layer {layer_id} {phase_name} — ACK resent, data ignored"
-                )
                 return
 
-            # 3. 标记已处理 & 执行业务逻辑
+            # 3. 分片级去重 & 记录
+            if dedup_key not in self._rx_frag_tracker:
+                self._rx_frag_tracker[dedup_key] = set()
+
+            frag_set = self._rx_frag_tracker[dedup_key]
+            if frag_id in frag_set:
+                return
+
+            frag_set.add(frag_id)
+
+            # 4. 检查是否该 peer 的所有分片都到齐了
+            if len(frag_set) < total_frags:
+                return
+
+            # --- 所有分片到齐 ---
             self.processed_set.add(dedup_key)
+            self.log.info(
+                f"COMPLETE from Node {src_id} | Layer {layer_id} "
+                f"{phase_name} ({total_frags} fragments reassembled)"
+            )
+
             await self.process_data_logic(src_id, layer_id, phase)
 
-            # 4. 更新接收 barrier
+            # 5. 更新接收 barrier
             key = (layer_id, phase)
             if key not in self._rx_sets:
                 self._rx_sets[key] = set()
@@ -150,72 +183,97 @@ class GpuNode:
         # --- 情况 B: 收到 ACK ---
         elif pkt.type == ETHTYPE_CONSENSUS:
             if src_id in self.ack_events:
-                expected_tag = self.current_sending_tag.get(src_id, (-1, -1))
+                expected_tag = self.current_sending_tag.get(src_id, {}).get(frag_id, (-1, -1))
                 if (layer_id, phase) == expected_tag:
-                    phase_name = MoePhase(phase).name
-                    self.log.info(
-                        f"Valid ACK from Node {src_id} | Layer {layer_id} Phase {phase_name}"
-                    )
-                    self.ack_events[src_id].set()
-                else:
-                    self.log.debug(
-                        f"Stale ACK from Node {src_id} round={round_id}, "
-                        f"expected tag={expected_tag}"
-                    )
+                    self.ack_events[src_id][frag_id].set()
 
     async def process_data_logic(self, src_id, layer_id, phase):
-        """收到新数据后的业务逻辑占位"""
         pass
 
     # ----------------------------------------------------------------
-    #  发送路径：可靠单播 + 重传
+    #  发送路径：每个分片独立可靠发送 + 重传
     # ----------------------------------------------------------------
-    async def _sender_worker(self, target_id: int, layer_id: int, phase: int):
-        """针对单个目标的可靠发送（带超时重传）"""
+    async def _frag_sender_worker(self, target_id: int, layer_id: int,
+                                  phase: int, frag_id: int) -> int:
+        """
+        针对单个目标的单个分片的可靠发送（带超时重传）。
+        返回值：该分片实际发送次数（含首次，≥1）。
+        不再内部调用 stats.record_send()，由上层汇总统计。
+        """
         round_id = self._encode_round(layer_id, phase)
-        self.current_sending_tag[target_id] = (layer_id, phase)
+        self.current_sending_tag[target_id][frag_id] = (layer_id, phase)
         attempts = 0
 
         while True:
-            self.ack_events[target_id].clear()
+            self.ack_events[target_id][frag_id].clear()
 
-            pkt = self.create_packet(target_id, ETHTYPE_MOE_DATA, round_id=round_id)
+            pkt = self.create_packet(
+                target_id, ETHTYPE_MOE_DATA, round_id=round_id,
+                frag_id=frag_id, total_frags=TOTAL_FRAGMENTS
+            )
             await self.network.receive_packet(pkt, self.port)
             attempts += 1
-            self.stats.record_send()
 
             try:
-                await with_timeout(self.ack_events[target_id].wait(), TIMEOUT_NS, 'ns')
-                phase_name = MoePhase(phase).name
-                self.log.info(
-                    f"TX OK -> Node {target_id} | Layer {layer_id} {phase_name} "
+                await with_timeout(
+                    self.ack_events[target_id][frag_id].wait(),
+                    TIMEOUT_NS, 'ns'
+                )
+                self.log.debug(
+                    f"TX frag {frag_id}/{TOTAL_FRAGMENTS} OK -> Node {target_id} "
+                    f"| Layer {layer_id} Phase {MoePhase(phase).name} "
                     f"({attempts} attempt(s))"
                 )
-                self.stats.record_task_done(layer_id, phase, target_id, attempts)
-                break
+                return attempts
             except cocotb.result.SimTimeoutError:
                 self.log.warning(
-                    f"TIMEOUT [Layer {layer_id} Phase {MoePhase(phase).name} -> Node {target_id}] "
-                    f"Retry #{attempts}"
+                    f"TIMEOUT [Layer {layer_id} Phase {MoePhase(phase).name} "
+                    f"-> Node {target_id} frag {frag_id}] Retry #{attempts}"
                 )
+
+    async def _sender_worker(self, target_id: int, layer_id: int, phase: int):
+        """
+        针对单个目标的可靠发送：并发发送所有分片。
+        所有分片完成后，汇总每个分片的尝试次数，一次性上报统计。
+        """
+        frag_tasks = []
+        for frag_id in range(TOTAL_FRAGMENTS):
+            t = cocotb.start_soon(
+                self._frag_sender_worker(target_id, layer_id, phase, frag_id)
+            )
+            frag_tasks.append((frag_id, t))
+
+        # 收集每个分片的实际尝试次数
+        frag_attempts: dict[int, int] = {}
+        for frag_id, t in frag_tasks:
+            attempts = await t
+            frag_attempts[frag_id] = attempts
+
+        total_attempts = sum(frag_attempts.values())
+        retransmits = total_attempts - TOTAL_FRAGMENTS
+        phase_name = MoePhase(phase).name
+        self.log.info(
+            f"TX ALL {TOTAL_FRAGMENTS} frags OK -> Node {target_id} "
+            f"| Layer {layer_id} {phase_name} "
+            f"({total_attempts} sends, {retransmits} retransmits)"
+        )
+
+        # 一次性上报：传入 frag_id -> attempts 字典
+        self.stats.record_task_done(layer_id, phase, target_id, frag_attempts)
 
     # ----------------------------------------------------------------
     #  All-to-All 的单个阶段
     # ----------------------------------------------------------------
     async def _run_all_to_all_phase(self, layer_id: int, phase: MoePhase):
-        """
-        对其余 7 个节点并发执行可靠发送，并等待：
-          1. 发送侧：7 路全部收到 ACK
-          2. 接收侧：收齐其余 7 个节点发来的本 phase 数据
-        两个条件都满足后才返回（双向 barrier）。
-        """
         phase_name = phase.name
-        self.log.info(f"  All-to-All {phase_name} START (Layer {layer_id})")
+        self.log.info(
+            f"  All-to-All {phase_name} START (Layer {layer_id}) "
+            f"[{TOTAL_FRAGMENTS} frags/target, "
+            f"{FRAGMENT_PAYLOAD_SIZE}B/frag]"
+        )
 
-        # 提前创建接收 barrier event（避免在数据先于发送到达时丢失信号）
         rx_event = self._get_rx_barrier(layer_id, int(phase))
 
-        # --- 发送侧：并发向 7 个 peer 可靠发送 ---
         send_tasks = []
         for target_id in self.peer_ids:
             t = cocotb.start_soon(
@@ -223,67 +281,37 @@ class GpuNode:
             )
             send_tasks.append(t)
 
-        # 等所有发送完成（7 路 ACK 全部收到）
         for t in send_tasks:
             await t
         self.log.info(f"  All-to-All {phase_name} TX DONE (Layer {layer_id})")
-        # --- 接收侧：等收齐 7 个 peer 的数据 ---
-        # 如果已经收齐了，rx_event 已经 set，这里会立刻返回
+
         await rx_event.wait()
         self.log.info(f"  All-to-All {phase_name} RX DONE (Layer {layer_id})")
-
         self.log.info(f"  All-to-All {phase_name} DONE  (Layer {layer_id})")
 
     # ----------------------------------------------------------------
     #  单层 MOE 通信（两阶段）
     # ----------------------------------------------------------------
     async def run_moe_layer(self, layer_id: int):
-        """
-        执行一层 MOE 通信，严格按顺序：
-          Phase 1 — DISPATCH: 向所有节点发射 token
-          Phase 2 — COMBINE:  从所有节点回收 token
-        COMBINE 必须在 DISPATCH 完成后才开始。
-        每个 phase 的"完成"意味着：
-          - 自己发出的 7 路数据全部被 ACK（发送完成）
-          - 自己也收到了其余 7 个节点发来的本 phase 数据（接收完成）
-        """
         self.log.info(f"=== MOE Layer {layer_id} BEGIN ===")
-        # Phase 1: Dispatch (发射 token)
         await self._run_all_to_all_phase(layer_id, MoePhase.DISPATCH)
-        await Timer(1, 'ms')#moe层间隔
-        # Phase 2: Combine (回收 token)
+        await Timer(1, 'ms')
         await self._run_all_to_all_phase(layer_id, MoePhase.COMBINE)
-
         self.log.info(f"=== MOE Layer {layer_id} END ===")
 
     # ----------------------------------------------------------------
     #  多层推理主循环
     # ----------------------------------------------------------------
     async def run_multi_layer_inference(self, total_layers=32):
-        """
-        模拟大模型推理全过程。
-
-        关键约束：
-          第 N 层的 DISPATCH 必须在第 N-1 层的 COMBINE 完成之后才能开始。
-          由于 run_moe_layer 内部已是顺序的（DISPATCH -> COMBINE），
-          而外层 for 循环逐层 await，天然满足此依赖关系：
-
-          Layer 0: DISPATCH -> COMBINE
-          Layer 1: DISPATCH -> COMBINE   （必须等 Layer 0 COMBINE 结束）
-          Layer 2: DISPATCH -> COMBINE   （必须等 Layer 1 COMBINE 结束）
-          ...
-
-        每个 phase 的"完成"同时包含发送完成和接收完成（双向 barrier），
-        确保本节点在进入下一阶段前已拥有所有必要数据。
-        """
         self._running = True
-        self.log.info(f"====== INFERENCE START ({total_layers} layers) ======")
+        self.log.info(
+            f"====== INFERENCE START ({total_layers} layers) ======\n"
+            f"  Fragment config: {PAYLOAD_BYTES_PER_TARGET}B total -> "
+            f"{TOTAL_FRAGMENTS} frags x {FRAGMENT_PAYLOAD_SIZE}B"
+        )
 
         for layer_id in range(total_layers):
-
-            # MOE 两阶段通信
             await self.run_moe_layer(layer_id)
-
 
         self.log.info("====== INFERENCE FINISHED ======")
         self.stats.print_summary()
