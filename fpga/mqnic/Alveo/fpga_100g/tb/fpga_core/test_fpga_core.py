@@ -15,12 +15,14 @@ import pytest
 import cocotb
 from cocotb.log import SimLog
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, FallingEdge, Timer
+from cocotb.triggers import RisingEdge, FallingEdge, Timer, Event, with_timeout
 
 from cocotbext.axi import AxiStreamBus, AxiLiteBus, AxiLiteRam
 from cocotbext.eth import EthMac
 from cocotbext.pcie.core import RootComplex
 from cocotbext.pcie.xilinx.us import UltraScalePlusPcieDevice
+
+from loguru import logger
 
 try:
     import mqnic
@@ -39,7 +41,7 @@ class TB(object):
 
         self.log = SimLog("cocotb.tb")
         self.log.setLevel(logging.DEBUG)
-
+        
         # PCIe
         self.rc = RootComplex()
 
@@ -362,7 +364,7 @@ class TB(object):
                         await mac.rx.send(await mac.tx.recv())
 
 
-@cocotb.test()
+#@cocotb.test()
 async def run_test_nic(dut):
 
     tb = TB(dut, msix_count=2**len(dut.uut.core_inst.core_pcie_inst.irq_index))
@@ -625,6 +627,153 @@ async def run_test_nic(dut):
 
     await RisingEdge(dut.clk_250mhz)
     await RisingEdge(dut.clk_250mhz)
+
+async def measure_loopback_latency(dut):
+    core = dut.uut.core_inst.core_pcie_inst.core_inst
+    iface = dut.uut.core_inst.core_pcie_inst.core_inst.iface[0].interface_inst
+    tx_path = iface.interface_tx_inst
+    rx_path = iface.interface_rx_inst
+    tx_clk = dut.ch[0].ch_tx_clk
+    rx_clk = dut.ch[0].ch_rx_clk
+    rel_mask = (1 << 48) - 1
+
+    t_interface_tx = None
+    t_mac_tx_ts = None
+    t_mac_rx = None
+    t_interface_rx = None
+
+    while t_interface_tx is None:
+        await RisingEdge(dut.clk_250mhz)
+        if int(tx_path.m_axis_tx_tvalid.value) and int(tx_path.m_axis_tx_tready.value):
+            t_interface_tx = int(iface.ptp_sync_ts_rel.value) & rel_mask
+
+    while t_mac_tx_ts is None:
+        await RisingEdge(tx_clk)
+        if int(dut.qsfp_tx_ptp_ts_valid.value) & 1:
+            t_mac_tx_ts = int(dut.uut.qsfp_tx_ptp_ts_int.value) & rel_mask
+            break
+
+    while t_mac_rx is None:
+        await RisingEdge(rx_clk)
+        if (int(core.s_axis_rx_tvalid.value) & 1) and (int(core.s_axis_rx_tready.value) & 1):
+            t_mac_rx = int(core.iface[0].port[0].port_rx_ptp_ts_rel.value) & rel_mask
+            break
+
+    while t_interface_rx is None:
+        await RisingEdge(dut.clk_250mhz)
+        if int(rx_path.s_axis_rx_tvalid.value) and int(rx_path.s_axis_rx_tready.value):
+            t_interface_rx = int(iface.ptp_sync_ts_rel.value) & rel_mask
+            break
+
+    return {
+        "ts_interface_tx": t_interface_tx,
+        "ts_mac_tx": t_mac_tx_ts,
+        "ts_mac_rx": t_mac_rx,
+        "ts_interface_rx": t_interface_rx,
+        "latency_interface_tx_to_mac": ((t_mac_tx_ts - t_interface_tx) & rel_mask) / 65536.0,
+        "latency_mac_rx_to_interface": ((t_interface_rx - t_mac_rx) & rel_mask) / 65536.0,
+    }
+
+
+@cocotb.test()
+async def run_test_latency(dut):
+    logging.getLogger("cocotbext.axi").setLevel(logging.WARNING)
+    logging.getLogger("cocotbext.eth").setLevel(logging.WARNING)
+    logging.getLogger("cocotbext.pcie").setLevel(logging.WARNING)
+    logging.getLogger("cocotb.test_fpga_core").setLevel(logging.WARNING)
+
+    tb = TB(dut, msix_count=2**len(dut.uut.core_inst.core_pcie_inst.irq_index))
+
+    await tb.init()
+
+    logger.info("Init driver")
+    await tb.driver.init_pcie_dev(tb.rc.find_device(tb.dev.functions[0].pcie_id))
+    for interface in tb.driver.interfaces:
+        await interface.ndevs[0].open()
+
+    # wait for all writes to complete
+    await tb.driver.hw_regs.read_dword(0)
+    logger.info("Init complete")
+
+    logger.info("Measure loopback tx/rx latency")
+    tb.loopback_enable = True
+
+    num_samples = int(os.getenv("LATENCY_SAMPLE_COUNT", "10000"))
+    warmup_samples = int(os.getenv("LATENCY_WARMUP_SAMPLES", "50"))
+    payload_size = int(os.getenv("LATENCY_PAYLOAD_SIZE", "256"))
+    latency_csv = os.getenv("LATENCY_CSV", "fpga_profile.csv")
+    latency_payloads = [bytearray([(x+k) % 256 for x in range(payload_size)]) for k in range(num_samples)]
+    tx_latency_samples_ns = []
+    rx_latency_samples_ns = []
+
+    logger.info(
+        "Latency sampling config: total_samples=%d warmup_samples=%d payload_size=%d",
+        num_samples,
+        warmup_samples,
+        payload_size,
+    )
+    logger.info("Latency CSV output: %s", latency_csv)
+
+    with open(latency_csv, "w") as f:
+        f.write("sample_idx,payload_size,ts_interface_tx,ts_mac_tx,ts_mac_rx,ts_interface_rx,latency_interface_tx_to_mac_ns,latency_mac_rx_to_interface_ns\n")
+
+    for k, payload in enumerate(latency_payloads):
+        logger.info("Starting latency sample %d", k)
+        monitor_task = cocotb.start_soon(measure_loopback_latency(dut))
+        await tb.driver.interfaces[0].ndevs[0].start_xmit(payload, 0)
+        pkt = await tb.driver.interfaces[0].ndevs[0].recv()
+        result = await monitor_task
+
+        assert pkt.data == payload
+
+        if k < warmup_samples:
+            logger.info(f"Warmup sample {k} completed, latency=%.2f ns", result["latency_interface_tx_to_mac"] + result["latency_mac_rx_to_interface"])
+            continue
+
+        steady_sample_idx = k - warmup_samples
+        tx_latency_samples_ns.append(result["latency_interface_tx_to_mac"])
+        rx_latency_samples_ns.append(result["latency_mac_rx_to_interface"])
+        logger.info(
+            "Latency sample %d: tx interface=0x%x tx mac=0x%x tx latency=%.2f ns "
+            "rx mac=0x%x rx interface=0x%x rx latency=%.2f ns",
+            steady_sample_idx,
+            result["ts_interface_tx"],
+            result["ts_mac_tx"],
+            result["latency_interface_tx_to_mac"],
+            result["ts_mac_rx"],
+            result["ts_interface_rx"],
+            result["latency_mac_rx_to_interface"],
+        )
+
+        # write sample result to file
+        with open(latency_csv, "a") as f:
+            f.write(
+                f"{steady_sample_idx},{payload_size},"
+                f"0x{result['ts_interface_tx']:x},0x{result['ts_mac_tx']:x},0x{result['ts_mac_rx']:x},0x{result['ts_interface_rx']:x},"
+                f"{result['latency_interface_tx_to_mac']:.2f},{result['latency_mac_rx_to_interface']:.2f}\n"
+            )
+
+    if tx_latency_samples_ns:
+        logger.info(
+            "TX latency summary: min=%.3f ns max=%.3f ns avg=%.3f ns",
+            min(tx_latency_samples_ns),
+            max(tx_latency_samples_ns),
+            sum(tx_latency_samples_ns) / len(tx_latency_samples_ns),
+        )
+        logger.info(
+            "RX latency summary: min=%.3f ns max=%.3f ns avg=%.3f ns",
+            min(rx_latency_samples_ns),
+            max(rx_latency_samples_ns),
+            sum(rx_latency_samples_ns) / len(rx_latency_samples_ns),
+        )
+    else:
+        logger.warning("No steady-state samples recorded; reduce LATENCY_WARMUP_SAMPLES or increase LATENCY_SAMPLE_COUNT")
+
+    tb.loopback_enable = False
+
+    await RisingEdge(dut.clk_250mhz)
+    await RisingEdge(dut.clk_250mhz)
+
 
 
 # cocotb-test
