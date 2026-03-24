@@ -1,6 +1,6 @@
 <testsuites name="results">
   <testsuite name="all" package="all">
-    <property name="random_seed" value="1774204674" />
-    <testcase name="test_sync_consensus_1hw2sw" classname="test_mqnic_sync_dcn" file="/home/krakos/niwe/SOSP26/corundum/fpga/app/sync_dcn/tb/mqnic_sync_dcn_asyn_v2/test_mqnic_sync_dcn.py" lineno="488" time="1246.4704747200012" sim_time_ns="5550114952.800001" ratio_time="4452664.596044076" />
+    <property name="random_seed" value="1774365600" />
+    <testcase name="test_sync_consensus_1hw2sw" classname="test_mqnic_sync_dcn" file="/home/krakos/niwe/SOSP26/corundum/fpga/app/sync_dcn/tb/mqnic_sync_dcn_asyn_v2/test_mqnic_sync_dcn.py" lineno="488" time="1132.3494119644165" sim_time_ns="5093088232.000001" ratio_time="4497806.22322613" />
   </testsuite>
 </testsuites>

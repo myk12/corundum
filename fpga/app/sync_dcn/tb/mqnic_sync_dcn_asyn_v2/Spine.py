@@ -20,7 +20,7 @@ from cocotbext.eth import EthMac
 from cocotbext.pcie.core import RootComplex
 from cocotbext.pcie.xilinx.us import UltraScalePlusPcieDevice
 from Tofino import Tofino, parse_packet
-from Constants import port_mapping,HOP_DELAY_NS
+from Constants import port_mapping
 
 
 class Spine:#tofino
@@ -41,8 +41,8 @@ class Spine:#tofino
         self.hw_dut = hw_dut
     def add_spine(self, spine):
         self.spines.append({"spine": spine})
-    async def receive_packet(self,pkt: Ether, in_port):
-        await Timer(HOP_DELAY_NS, 'ns')  # Simulate hop delay for packet reception
+    def receive_packet(self,pkt: Ether, in_port):
+        
         #self.log.info(f"Packet with target node ID {parse_packet(pkt)} received at Spine {self.Spine_id} on port {in_port}")
         self.receive_packet_for_queue(pkt, in_port)
     def receive_packet_for_queue(self, pkt: Ether, in_port):
@@ -62,7 +62,7 @@ class Spine:#tofino
             assert node is not None, f"Target node ID {receiver_id} not found in sw_nodes of Spine {self.Spine_id} in port {out_port}"
             #打印日志
             #self.log.info(f"Packet with target node ID {receiver_id} sent to port {out_port} of Spine {self.Spine_id}")
-            cocotb.start_soon(node["node"].recv_packet(pkt,out_port))  # Simulate packet reception at the target node
+            node["node"].recv_packet(pkt,out_port)
             return
         
         #读取mapping,找到out_port对应的in_port和spine
@@ -72,16 +72,8 @@ class Spine:#tofino
         assert target_spine is not None, f"Target spine with input port {in_port} not found in Spine {self.Spine_id},out_port {out_port},leaf_id {leaf_id},receiver_id {receiver_id}"
         #启动协程
         #self.log.info(f"Packet with target node ID {receiver_id} sent to Spine {self.Spine_id} for internal transfer to port {out_port} (in_port {in_port})")
-        cocotb.start_soon(target_spine["spine"].receive_packet(pkt, in_port))  # Simulate packet reception at the target spine
+        target_spine["spine"].receive_packet(pkt, in_port)
         
-    async def transfer_inside_spine(self, pkt: Ether, from_leaf_id: int,out_port: int):
-        await Timer(HOP_DELAY_NS, 'ns')  # Simulate hop delay for internal transfer
-        #self.log.info(f"Packet with target node ID {parse_packet(pkt)} transferred inside Spine {self.Spine_id} from leaf {from_leaf_id} to port {out_port}")
-        if from_leaf_id == 1:
-            self.leaf2.add_queue_out(pkt, out_port)
-        else:
-            self.leaf1.add_queue_out(pkt, out_port)
-
     def start(self):
         for node in self.sw_nodes:
             task = cocotb.start_soon(node['node'].run_multi_layer_inference(32))  # Start software node runner
