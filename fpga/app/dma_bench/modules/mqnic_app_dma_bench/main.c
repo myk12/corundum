@@ -5,6 +5,24 @@
 
 #include "mqnic.h"
 #include <linux/module.h>
+#include <linux/pci.h>
+
+/*
+ * compitability for newer kernels where PCI_DMA_XXX flags were renamed to DMA_XXX
+ * use local definitions to avoid compatibility issues with older kernels
+ */
+#ifndef PCI_DMA_TODEVICE
+#define MQNIC_DMA_TO_DEVICE DMA_TO_DEVICE
+#else
+#define MQNIC_DMA_TO_DEVICE PCI_DMA_TODEVICE
+#endif
+
+#ifndef PCI_DMA_FROMDEVICE
+#define MQNIC_DMA_FROM_DEVICE DMA_FROM_DEVICE
+#else
+#define MQNIC_DMA_FROM_DEVICE PCI_DMA_FROMDEVICE
+#endif
+
 
 MODULE_DESCRIPTION("mqnic DMA benchmark application driver");
 MODULE_AUTHOR("Alex Forencich");
@@ -474,7 +492,7 @@ static int mqnic_app_dma_bench_probe(struct auxiliary_device *adev,
 				__GFP_COMP | __GFP_MEMALLOC, 2);
 
 		if (page) {
-			dma_addr = dma_map_page(app->nic_dev, page, 0, 4096 * (1 << 2), PCI_DMA_TODEVICE);
+			dma_addr = dma_map_page(app->nic_dev, page, 0, 4096 * (1 << 2), MQNIC_DMA_TO_DEVICE);
 
 			if (!dma_mapping_error(app->nic_dev, dma_addr)) {
 				dev_info(dev, "perform block reads (alloc_pages_node)");
@@ -486,12 +504,12 @@ static int mqnic_app_dma_bench_probe(struct auxiliary_device *adev,
 					}
 				}
 
-				dma_unmap_page(app->nic_dev, dma_addr, 4096 * (1 << 2), PCI_DMA_TODEVICE);
+				dma_unmap_page(app->nic_dev, dma_addr, 4096 * (1 << 2), MQNIC_DMA_TO_DEVICE);
 			} else {
 				dev_warn(dev, "DMA mapping error");
 			}
 
-			dma_addr = dma_map_page(app->nic_dev, page, 0, 4096 * (1 << 2), PCI_DMA_FROMDEVICE);
+			dma_addr = dma_map_page(app->nic_dev, page, 0, 4096 * (1 << 2), MQNIC_DMA_FROM_DEVICE);
 
 			if (!dma_mapping_error(app->nic_dev, dma_addr)) {
 				dev_info(dev, "perform block writes (alloc_pages_node)");
@@ -503,7 +521,7 @@ static int mqnic_app_dma_bench_probe(struct auxiliary_device *adev,
 					}
 				}
 
-				dma_unmap_page(app->nic_dev, dma_addr, 4096 * (1 << 2), PCI_DMA_FROMDEVICE);
+				dma_unmap_page(app->nic_dev, dma_addr, 4096 * (1 << 2), MQNIC_DMA_FROM_DEVICE);
 			} else {
 				dev_warn(dev, "DMA mapping error");
 			}

@@ -6,6 +6,21 @@
 #include "mqnic.h"
 
 #include <linux/version.h>
+#include <linux/timer.h>
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
+#define mqnic_from_timer(var, callback_timer, timer_fieldname) \
+	timer_container_of(var, callback_timer, timer_fieldname)
+#else
+#define mqnic_from_timer(var, callback_timer, timer_fieldname) \
+	from_timer(var, callback_timer, timer_fieldname)
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+#define mqnic_timer_delete_sync(timer) timer_delete_sync(timer)
+#else
+#define mqnic_timer_delete_sync(timer) del_timer_sync(timer)
+#endif
 
 int mqnic_start_port(struct net_device *ndev)
 {
@@ -229,7 +244,7 @@ void mqnic_stop_port(struct net_device *ndev)
 	netdev_info(ndev, "%s on interface %d", __func__, priv->interface->index);
 
 	if (mqnic_link_status_poll)
-		del_timer_sync(&priv->link_status_timer);
+		mqnic_timer_delete_sync(&priv->link_status_timer);
 
 	mqnic_port_set_rx_ctrl(priv->port, 0);
 
@@ -573,7 +588,7 @@ static const struct net_device_ops mqnic_netdev_ops = {
 
 static void mqnic_link_status_timeout(struct timer_list *timer)
 {
-	struct mqnic_priv *priv = from_timer(priv, timer, link_status_timer);
+	struct mqnic_priv *priv = mqnic_from_timer(priv, timer, link_status_timer);
 	unsigned int up = 1;
 
 	if (!(mqnic_port_get_tx_ctrl(priv->port) & MQNIC_PORT_TX_CTRL_STATUS))
